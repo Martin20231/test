@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { DEFAULT_PRODUCT_IMAGES } from '../services/productImages.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dirname, '..', 'data', 'einkauf.db');
@@ -28,9 +29,10 @@ export function initDatabase() {
     );
 
     CREATE TABLE IF NOT EXISTS products (
-      id       INTEGER PRIMARY KEY AUTOINCREMENT,
-      name     TEXT NOT NULL,
-      category TEXT NOT NULL
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      name      TEXT NOT NULL,
+      category  TEXT NOT NULL,
+      image_url TEXT
     );
 
     CREATE TABLE IF NOT EXISTS receipts (
@@ -49,8 +51,23 @@ export function initDatabase() {
   `);
 
   seedDatabase(db);
+  migrateDatabase(db);
 
   return db;
+}
+
+function migrateDatabase(database) {
+  const columns = database.prepare('PRAGMA table_info(products)').all();
+  if (!columns.some((c) => c.name === 'image_url')) {
+    database.exec('ALTER TABLE products ADD COLUMN image_url TEXT');
+  }
+
+  const updateImage = database.prepare(
+    'UPDATE products SET image_url = ? WHERE name = ? AND (image_url IS NULL OR image_url = \'\')'
+  );
+  for (const [name, url] of Object.entries(DEFAULT_PRODUCT_IMAGES)) {
+    updateImage.run(url, name);
+  }
 }
 
 function seedDatabase(database) {
@@ -62,17 +79,17 @@ function seedDatabase(database) {
   const productCount = database.prepare('SELECT COUNT(*) AS count FROM products').get().count;
   if (productCount === 0) {
     const insertProduct = database.prepare(
-      'INSERT INTO products (name, category) VALUES (?, ?)'
+      'INSERT INTO products (name, category, image_url) VALUES (?, ?, ?)'
     );
     const products = [
-      ['Milch', 'Milchprodukte'],
-      ['Butter', 'Milchprodukte'],
-      ['Brot', 'Backwaren'],
-      ['Eier', 'Milchprodukte'],
-      ['Kaffee', 'Getränke'],
+      ['Milch', 'Milchprodukte', DEFAULT_PRODUCT_IMAGES.Milch],
+      ['Butter', 'Milchprodukte', DEFAULT_PRODUCT_IMAGES.Butter],
+      ['Brot', 'Backwaren', DEFAULT_PRODUCT_IMAGES.Brot],
+      ['Eier', 'Milchprodukte', DEFAULT_PRODUCT_IMAGES.Eier],
+      ['Kaffee', 'Getränke', DEFAULT_PRODUCT_IMAGES.Kaffee],
     ];
-    for (const [name, category] of products) {
-      insertProduct.run(name, category);
+    for (const [name, category, imageUrl] of products) {
+      insertProduct.run(name, category, imageUrl);
     }
   }
 }

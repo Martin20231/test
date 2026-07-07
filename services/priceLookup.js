@@ -1,3 +1,5 @@
+import { resolveProductImage } from './productImages.js';
+
 const REWE_SUGGESTIONS_URL = 'https://www.rewe.de/shop/api/suggestions';
 
 const USER_AGENT =
@@ -43,6 +45,7 @@ export async function fetchRewePrices(query, limit = 8) {
     price: centsToEuro(item.price),
     grammage: item.grammage ?? null,
     product_id: item.productId,
+    image_url: item.image ?? null,
     url: item.url ? `https://www.rewe.de${item.url}` : null,
     tags: item.tags ?? [],
   }));
@@ -53,7 +56,7 @@ export function findLocalProducts(db, query) {
   return db
     .prepare(
       `
-      SELECT id, name, category
+      SELECT id, name, category, image_url
       FROM products
       WHERE name LIKE ? COLLATE NOCASE
          OR category LIKE ? COLLATE NOCASE
@@ -127,6 +130,7 @@ export function buildComparison(localMatches, internetPrices) {
     comparisons.push({
       local_product_id: local.id,
       local_product_name: local.name,
+      local_image_url: local.image_url ?? resolveProductImage(local, internetPrices),
       local_prices: localStores,
       local_cheapest: localCheapest,
       internet_cheapest: internetCheapest,
@@ -167,6 +171,7 @@ export async function lookupPrices(db, query, { limit = 8 } = {}) {
   const localProducts = findLocalProducts(db, trimmed);
   const localMatches = localProducts.map((product) => ({
     ...product,
+    image_url: resolveProductImage(product, internet),
     prices: getLocalPricesForProduct(db, product.id),
   }));
 

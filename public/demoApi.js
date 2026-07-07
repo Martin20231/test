@@ -1,5 +1,7 @@
 const STORAGE_KEY = 'einkaufs-tracker-demo';
 
+import { DEFAULT_PRODUCT_IMAGES } from './productImages.js';
+
 const SEED = {
   stores: [
     { id: 1, name: 'Lidl' },
@@ -7,11 +9,11 @@ const SEED = {
     { id: 3, name: 'REWE' },
   ],
   products: [
-    { id: 1, name: 'Milch', category: 'Milchprodukte' },
-    { id: 2, name: 'Butter', category: 'Milchprodukte' },
-    { id: 3, name: 'Brot', category: 'Backwaren' },
-    { id: 4, name: 'Eier', category: 'Milchprodukte' },
-    { id: 5, name: 'Kaffee', category: 'Getränke' },
+    { id: 1, name: 'Milch', category: 'Milchprodukte', image_url: DEFAULT_PRODUCT_IMAGES.Milch },
+    { id: 2, name: 'Butter', category: 'Milchprodukte', image_url: DEFAULT_PRODUCT_IMAGES.Butter },
+    { id: 3, name: 'Brot', category: 'Backwaren', image_url: DEFAULT_PRODUCT_IMAGES.Brot },
+    { id: 4, name: 'Eier', category: 'Milchprodukte', image_url: DEFAULT_PRODUCT_IMAGES.Eier },
+    { id: 5, name: 'Kaffee', category: 'Getränke', image_url: DEFAULT_PRODUCT_IMAGES.Kaffee },
   ],
   receipts: [
     {
@@ -44,7 +46,16 @@ function load() {
     save(data);
     return data;
   }
-  return JSON.parse(raw);
+  const data = JSON.parse(raw);
+  let updated = false;
+  for (const p of data.products) {
+    if (!p.image_url && DEFAULT_PRODUCT_IMAGES[p.name]) {
+      p.image_url = DEFAULT_PRODUCT_IMAGES[p.name];
+      updated = true;
+    }
+  }
+  if (updated) save(data);
+  return data;
 }
 
 function save(data) {
@@ -62,12 +73,12 @@ function productName(data, productId) {
 function mockReweProducts(query) {
   const q = query.toLowerCase();
   const samples = [
-    { name: 'Hemme Milch Frische Vollmilch 3,7% 1l', price: 1.59, grammage: '1l' },
-    { name: 'ja! Natürlich Bio H-Milch 3,8% 1l', price: 1.29, grammage: '1l' },
-    { name: 'Kerrygold Butter 250g', price: 2.49, grammage: '250g' },
-    { name: 'Vollkornbrot 500g', price: 1.99, grammage: '500g' },
-    { name: 'Freilandeier 10 Stück', price: 3.49, grammage: '10 Stk' },
-    { name: 'Jacobs Krönung 500g', price: 5.99, grammage: '500g' },
+    { name: 'Hemme Milch Frische Vollmilch 3,7% 1l', price: 1.59, grammage: '1l', image_url: DEFAULT_PRODUCT_IMAGES.Milch },
+    { name: 'ja! Natürlich Bio H-Milch 3,8% 1l', price: 1.29, grammage: '1l', image_url: DEFAULT_PRODUCT_IMAGES.Milch },
+    { name: 'Kerrygold Butter 250g', price: 2.49, grammage: '250g', image_url: DEFAULT_PRODUCT_IMAGES.Butter },
+    { name: 'Vollkornbrot 500g', price: 1.99, grammage: '500g', image_url: DEFAULT_PRODUCT_IMAGES.Brot },
+    { name: 'Freilandeier 10 Stück', price: 3.49, grammage: '10 Stk', image_url: DEFAULT_PRODUCT_IMAGES.Eier },
+    { name: 'Jacobs Krönung 500g', price: 5.99, grammage: '500g', image_url: DEFAULT_PRODUCT_IMAGES.Kaffee },
   ];
   return samples
     .filter((s) => s.name.toLowerCase().includes(q) || q.length < 3)
@@ -80,6 +91,7 @@ function mockReweProducts(query) {
       price: s.price,
       grammage: s.grammage,
       product_id: `demo-${i}`,
+      image_url: s.image_url,
       url: null,
       tags: [],
     }));
@@ -122,7 +134,13 @@ export async function demoApi(path, options = {}) {
       }
     }
     history.sort((a, b) => a.date.localeCompare(b.date));
-    return { product_id: product.id, product_name: product.name, history };
+    return {
+      product_id: product.id,
+      product_name: product.name,
+      image_url: product.image_url,
+      category: product.category,
+      history,
+    };
   }
 
   if (path.startsWith('/prices/lookup') && method === 'GET') {
@@ -169,6 +187,7 @@ export async function demoApi(path, options = {}) {
       return {
         local_product_id: local.id,
         local_product_name: local.name,
+        local_image_url: local.image_url,
         local_prices: local.prices,
         local_cheapest: localCheapest,
         internet_cheapest: internetCheapest,
@@ -215,6 +234,7 @@ export async function demoApi(path, options = {}) {
         product_id: product.id,
         product_name: product.name,
         category: product.category,
+        image_url: product.image_url,
         cheapest_store: cheapest?.store_name ?? null,
         cheapest_price: cheapest?.latest_price ?? null,
         stores,

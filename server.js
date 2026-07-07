@@ -45,7 +45,7 @@ app.get('/api/stores', (_req, res, next) => {
 app.get('/api/products', (_req, res, next) => {
   try {
     const products = getDb()
-      .prepare('SELECT id, name, category FROM products ORDER BY name')
+      .prepare('SELECT id, name, category, image_url FROM products ORDER BY name')
       .all();
     res.json({ products });
   } catch (error) {
@@ -149,7 +149,7 @@ app.get('/api/products/history/:id', (req, res, next) => {
     const db = getDb();
 
     const product = db
-      .prepare('SELECT id, name FROM products WHERE id = ?')
+      .prepare('SELECT id, name, image_url, category FROM products WHERE id = ?')
       .get(productId);
 
     if (!product) {
@@ -175,6 +175,8 @@ app.get('/api/products/history/:id', (req, res, next) => {
     res.json({
       product_id: product.id,
       product_name: product.name,
+      image_url: product.image_url,
+      category: product.category,
       history,
     });
   } catch (error) {
@@ -207,6 +209,7 @@ app.get('/api/compare', (_req, res, next) => {
           p.id AS product_id,
           p.name AS product_name,
           p.category,
+          p.image_url,
           s.id AS store_id,
           s.name AS store_name,
           (
@@ -239,6 +242,7 @@ app.get('/api/compare', (_req, res, next) => {
           product_id: row.product_id,
           product_name: row.product_name,
           category: row.category,
+          image_url: row.image_url,
           stores: [],
         });
       }
@@ -270,6 +274,7 @@ app.get('/api/compare', (_req, res, next) => {
         product_id: product.product_id,
         product_name: product.product_name,
         category: product.category,
+        image_url: product.image_url,
         cheapest_store: cheapest.store_name,
         cheapest_price: cheapest.latest_price,
         stores: product.stores,

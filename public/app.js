@@ -1,3 +1,5 @@
+import { productImageHtml } from './productImages.js';
+
 function resolveApiBase() {
   const configured = window.APP_CONFIG?.API_BASE?.trim();
   if (configured) return configured.replace(/\/$/, '');
@@ -48,6 +50,7 @@ const els = {
   chartProductName: $('#chart-product-name'),
   chartMeta: $('#chart-meta'),
   chartStats: $('#chart-stats'),
+  chartProductImage: $('#chart-product-image'),
   priceChart: $('#price-chart'),
   optimizerLoading: $('#optimizer-loading'),
   optimizerEmpty: $('#optimizer-empty'),
@@ -232,6 +235,7 @@ async function runAiAnalysis() {
   state.detectedItems = selected.map((product) => ({
     product_id: product.id,
     product_name: product.name,
+    image_url: product.image_url,
     store_name: store.name,
     price: +(0.79 + Math.random() * 4.5).toFixed(2),
   }));
@@ -252,7 +256,12 @@ function renderDetectedItems() {
     total += item.price;
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${item.product_name}</td>
+      <td>
+        <div class="product-cell">
+          ${productImageHtml(item.image_url, item.product_name, '', 'sm')}
+          <span>${item.product_name}</span>
+        </div>
+      </td>
       <td>${item.store_name}</td>
       <td class="text-right price-cell">${formatPrice(item.price)}</td>
     `;
@@ -359,7 +368,10 @@ function renderSuggestions(matches) {
     const div = document.createElement('div');
     div.className = 'suggestion-item';
     div.innerHTML = `
-      <span>${product.name}</span>
+      <div class="suggestion-item-content">
+        ${productImageHtml(product.image_url, product.name, product.category, 'xs')}
+        <span>${product.name}</span>
+      </div>
       <span class="suggestion-category">${product.category}</span>
     `;
     div.addEventListener('click', () => selectProduct(product));
@@ -433,7 +445,10 @@ function renderPriceLookup(data) {
           : '';
 
       card.innerHTML = `
-        <div class="comparison-card-title">${item.local_product_name || data.query}</div>
+        <div class="comparison-card-header">
+          ${productImageHtml(item.local_image_url, item.local_product_name || data.query, '', 'md')}
+          <div class="comparison-card-title">${item.local_product_name || data.query}</div>
+        </div>
         <div class="comparison-card-prices">${localHtml} ${internetHtml}</div>
         ${item.verdict ? `<p class="comparison-verdict">${item.verdict}</p>` : ''}
       `;
@@ -447,7 +462,12 @@ function renderPriceLookup(data) {
       .map(
         (p) => `
       <tr>
-        <td>${p.name}</td>
+        <td>
+          <div class="product-cell">
+            ${productImageHtml(p.image_url, p.name, '', 'sm')}
+            <span>${p.name}</span>
+          </div>
+        </td>
         <td class="text-slate-400">${p.grammage || '–'}</td>
         <td class="text-right price-cell">${formatPrice(p.price)}</td>
       </tr>
@@ -464,6 +484,14 @@ function renderPriceChart(data) {
   els.chartEmpty.classList.add('hidden');
   els.chartPanel.classList.remove('hidden');
 
+  if (els.chartProductImage) {
+    els.chartProductImage.innerHTML = productImageHtml(
+      data.image_url,
+      data.product_name,
+      data.category,
+      'lg'
+    );
+  }
   els.chartProductName.textContent = data.product_name;
   els.chartMeta.textContent = `${data.history.length} Preiseinträge`;
 
@@ -637,9 +665,12 @@ function renderOptimizer(comparisons) {
 
     card.innerHTML = `
       <div class="product-card-header">
-        <div>
-          <div class="product-card-name">${product.product_name}</div>
-          <div class="product-card-category">${product.category}</div>
+        <div class="product-card-title-row">
+          ${productImageHtml(product.image_url, product.product_name, product.category, 'md')}
+          <div>
+            <div class="product-card-name">${product.product_name}</div>
+            <div class="product-card-category">${product.category}</div>
+          </div>
         </div>
         <div class="cheapest-badge">
           ✓ ${product.cheapest_store} · ${formatPrice(product.cheapest_price)}

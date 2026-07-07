@@ -192,7 +192,7 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Produkt (REWE Online)</th>
+                  <th>Produkt</th>
                   <th>Menge</th>
                   <th class="text-right">Preis</th>
                 </tr>
@@ -210,11 +210,14 @@
 
         <div id="chart-panel" class="panel-card hidden">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-            <div>
-              <h3 id="chart-product-name" class="text-xl font-bold"></h3>
-              <p id="chart-meta" class="text-sm text-slate-400 mt-1"></p>
+            <div class="chart-header-inner flex items-center gap-4">
+              <div id="chart-product-image"></div>
+              <div>
+                <h3 id="chart-product-name" class="text-xl font-bold"></h3>
+                <p id="chart-meta" class="text-sm text-slate-400 mt-1"></p>
+              </div>
             </div>
-            <div id="chart-stats" class="flex gap-4"></div>
+            <div id="chart-stats" class="flex gap-4 flex-wrap"></div>
           </div>
           <div class="chart-container">
             <canvas id="price-chart"></canvas>
