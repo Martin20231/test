@@ -118,7 +118,7 @@ function migrateDatabase(database) {
 
 function seedDatabase(database) {
   const insertStore = database.prepare('INSERT OR IGNORE INTO stores (name) VALUES (?)');
-  for (const name of ['Lidl', 'Aldi', 'REWE']) {
+  for (const name of ['Lidl', 'Aldi', 'REWE', 'Netto', 'EDEKA', 'ROSSMANN']) {
     insertStore.run(name);
   }
 

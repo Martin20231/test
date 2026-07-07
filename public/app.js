@@ -211,7 +211,7 @@ function handleFile(file) {
 }
 
 function updateAnalyzeButton() {
-  els.btnAnalyze.disabled = !(state.uploadedFile && state.selectedStoreId);
+  els.btnAnalyze.disabled = !state.uploadedFile;
 }
 
 function setAnalyzeStatus(status, text) {
@@ -220,31 +220,65 @@ function setAnalyzeStatus(status, text) {
 }
 
 async function runAiAnalysis() {
-  if (!state.uploadedFile || !state.selectedStoreId) return;
+  if (!state.uploadedFile) return;
 
   els.btnAnalyze.disabled = true;
-  setAnalyzeStatus('scanning', 'Scannt…');
+  setAnalyzeStatus('scanning', 'Scannt Bon…');
   els.scanOverlay.classList.add('active');
 
-  await delay(2500);
+  try {
+    const { analyzeReceipt } = await import('./receiptOcr.js');
+    const result = await analyzeReceipt(els.previewImage.src, state.products, (progress) => {
+      setAnalyzeStatus('scanning', `OCR ${Math.round(progress * 100)}%`);
+    });
 
-  const store = state.stores.find((s) => s.id === state.selectedStoreId);
-  const shuffled = [...state.products].sort(() => Math.random() - 0.5);
-  const count = Math.min(3 + Math.floor(Math.random() * 3), shuffled.length);
-  const selected = shuffled.slice(0, count);
+    if (result.detectedStore) {
+      const detected = state.stores.find(
+        (s) => s.name.toLowerCase() === result.detectedStore.toLowerCase()
+      );
+      if (detected) {
+        state.selectedStoreId = detected.id;
+        els.storeSelect.value = String(detected.id);
+        showToast(`Laden erkannt: ${detected.name}`);
+      }
+    }
 
-  state.detectedItems = selected.map((product) => ({
-    product_id: product.id,
-    product_name: product.name,
-    image_url: product.image_url,
-    store_name: store.name,
-    price: +(0.79 + Math.random() * 4.5).toFixed(2),
-  }));
+    if (!state.selectedStoreId) {
+      setAnalyzeStatus('idle', 'Laden wählen');
+      showToast('Laden konnte nicht erkannt werden – bitte manuell wählen.', 'error');
+      return;
+    }
 
-  renderDetectedItems();
-  setAnalyzeStatus('done', 'Fertig');
-  els.scanOverlay.classList.remove('active');
-  els.btnAnalyze.disabled = false;
+    const store = state.stores.find((s) => s.id === state.selectedStoreId);
+
+    if (result.items.length === 0) {
+      setAnalyzeStatus('idle', 'Keine Artikel');
+      showToast('Keine Produkte auf dem Bon erkannt. Bitte Foto prüfen.', 'error');
+      return;
+    }
+
+    state.detectedItems = result.items.map((item) => ({
+      product_id: item.product_id,
+      product_name: item.product_name,
+      ocr_name: item.ocr_name,
+      image_url: item.image_url,
+      store_name: store?.name,
+      price: item.price,
+      matched: item.matched,
+    }));
+
+    renderDetectedItems();
+    const matched = result.items.filter((i) => i.matched).length;
+    setAnalyzeStatus('done', `${result.items.length} Artikel`);
+    showToast(`${result.items.length} Artikel erkannt (${matched} im Katalog)`);
+  } catch (err) {
+    setAnalyzeStatus('idle', 'Fehler');
+    showToast(`Bon-Scan fehlgeschlagen: ${err.message}`, 'error');
+  } finally {
+    els.scanOverlay.classList.remove('active');
+    els.btnAnalyze.disabled = false;
+    updateAnalyzeButton();
+  }
 }
 
 function renderDetectedItems() {
@@ -256,11 +290,22 @@ function renderDetectedItems() {
   for (const item of state.detectedItems) {
     total += item.price;
     const tr = document.createElement('tr');
+    const nameHint =
+      item.ocr_name && item.ocr_name !== item.product_name
+        ? `<span class="ocr-hint" title="Bon-Text">${item.ocr_name}</span>`
+        : '';
+    const matchBadge = item.matched
+      ? ''
+      : '<span class="ocr-unmatched">Neu</span>';
     tr.innerHTML = `
       <td>
         <div class="product-cell">
           ${productImageHtml(item.image_url, item.product_name, '', 'sm')}
-          <span>${item.product_name}</span>
+          <div>
+            <span>${item.product_name}</span>
+            ${nameHint}
+            ${matchBadge}
+          </div>
         </div>
       </td>
       <td>${item.store_name}</td>
@@ -287,12 +332,14 @@ async function saveReceipt() {
         total_price: +total.toFixed(2),
         items: state.detectedItems.map((i) => ({
           product_id: i.product_id,
+          product_name: i.product_name,
           price: i.price,
         })),
       }),
     });
     showToast('Kassenbon erfolgreich gespeichert!');
     resetUpload();
+    await loadInitialData();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {

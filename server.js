@@ -74,9 +74,14 @@ app.post('/api/receipts', (req, res, next) => {
     }
 
     for (const item of items) {
-      if (item.product_id == null || item.price == null) {
+      if (item.price == null) {
         return res.status(400).json({
-          error: 'Jedes Item benötigt product_id und price.',
+          error: 'Jedes Item benötigt price.',
+        });
+      }
+      if (!item.product_id && !item.product_name) {
+        return res.status(400).json({
+          error: 'Jedes Item benötigt product_id oder product_name.',
         });
       }
       if (typeof item.price !== 'number' || item.price <= 0) {
@@ -87,22 +92,37 @@ app.post('/api/receipts', (req, res, next) => {
     }
 
     const db = getDb();
+    const findProduct = db.prepare('SELECT id FROM products WHERE id = ?');
+    const findByName = db.prepare('SELECT id FROM products WHERE name = ? COLLATE NOCASE');
+    const insertProduct = db.prepare(`
+      INSERT INTO products (name, category, image_url) VALUES (?, 'Bon-Scan', NULL)
+    `);
+
+    function resolveProductId(item) {
+      if (item.product_id != null) {
+        const product = findProduct.get(item.product_id);
+        if (!product) {
+          throw Object.assign(new Error(`Produkt mit ID ${item.product_id} existiert nicht.`), {
+            status: 400,
+          });
+        }
+        return item.product_id;
+      }
+      const existing = findByName.get(item.product_name);
+      if (existing) return existing.id;
+      const result = insertProduct.run(item.product_name);
+      return result.lastInsertRowid;
+    }
 
     const store = db.prepare('SELECT id FROM stores WHERE id = ?').get(store_id);
     if (!store) {
       return res.status(400).json({ error: `Store mit ID ${store_id} existiert nicht.` });
     }
 
-    for (const item of items) {
-      const product = db
-        .prepare('SELECT id FROM products WHERE id = ?')
-        .get(item.product_id);
-      if (!product) {
-        return res.status(400).json({
-          error: `Produkt mit ID ${item.product_id} existiert nicht.`,
-        });
-      }
-    }
+    const resolvedItems = items.map((item) => ({
+      product_id: resolveProductId(item),
+      price: item.price,
+    }));
 
     const insertReceipt = db.prepare(`
       INSERT INTO receipts (store_id, date, total_price)
@@ -118,7 +138,7 @@ app.post('/api/receipts', (req, res, next) => {
       const result = insertReceipt.run(store_id, date, total_price);
       const receiptId = result.lastInsertRowid;
 
-      const savedItems = items.map((item) => {
+      const savedItems = resolvedItems.map((item) => {
         const itemResult = insertItem.run(receiptId, item.product_id, item.price);
         return {
           id: itemResult.lastInsertRowid,

@@ -14,12 +14,17 @@ const catalogProducts = PRODUCT_CATALOG.map((p, index) => ({
   brand: p.brand,
 }));
 
+const ALL_STORES = [
+  { id: 1, name: 'Lidl' },
+  { id: 2, name: 'Aldi' },
+  { id: 3, name: 'REWE' },
+  { id: 4, name: 'Netto' },
+  { id: 5, name: 'EDEKA' },
+  { id: 6, name: 'ROSSMANN' },
+];
+
 const SEED = {
-  stores: [
-    { id: 1, name: 'Lidl' },
-    { id: 2, name: 'Aldi' },
-    { id: 3, name: 'REWE' },
-  ],
+  stores: ALL_STORES,
   products: catalogProducts,
   receipts: [
     {
@@ -53,12 +58,11 @@ function load() {
     return data;
   }
   const data = JSON.parse(raw);
+  let updated = false;
   if (data.products?.length !== catalogProducts.length) {
     data.products = catalogProducts;
-    save(data);
-    return data;
+    updated = true;
   }
-  let updated = false;
   for (const p of data.products) {
     const catalog = catalogProducts.find((c) => c.id === p.id || c.name === p.name);
     if (!catalog) continue;
@@ -76,6 +80,16 @@ function load() {
     }
   }
   if (updated) save(data);
+
+  for (const store of ALL_STORES) {
+    if (!data.stores.some((s) => s.name === store.name)) {
+      const nextId = Math.max(0, ...data.stores.map((s) => s.id)) + 1;
+      data.stores.push({ id: nextId, name: store.name });
+      updated = true;
+    }
+  }
+  if (updated) save(data);
+
   return data;
 }
 
@@ -85,6 +99,19 @@ function save(data) {
 
 function storeName(data, storeId) {
   return data.stores.find((s) => s.id === storeId)?.name ?? 'Unbekannt';
+}
+
+function ensureProduct(data, name) {
+  const existing = data.products.find((p) => p.name.toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const id = Math.max(0, ...data.products.map((p) => p.id)) + 1;
+  data.products.push({
+    id,
+    name,
+    category: 'Bon-Scan',
+    image_url: null,
+  });
+  return id;
 }
 
 export async function demoApi(path, options = {}) {
@@ -256,11 +283,15 @@ export async function demoApi(path, options = {}) {
     const body = JSON.parse(options.body);
     const nextId = Math.max(0, ...data.receipts.map((r) => r.id)) + 1;
     let itemId = Math.max(0, ...data.receipts.flatMap((r) => r.items.map((i) => i.id))) + 1;
-    const items = body.items.map((item) => ({
-      id: itemId++,
-      product_id: item.product_id,
-      price: item.price,
-    }));
+    const items = body.items.map((item) => {
+      const productId =
+        item.product_id ?? ensureProduct(data, item.product_name || 'Unbekannt');
+      return {
+        id: itemId++,
+        product_id: productId,
+        price: item.price,
+      };
+    });
     const receipt = {
       id: nextId,
       store_id: body.store_id,
