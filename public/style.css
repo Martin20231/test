@@ -19,9 +19,19 @@
   padding: 0.625rem 1rem;
   text-align: center;
   font-size: 0.8125rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.demo-banner--live {
+  color: #00ff9d;
+  background: rgba(0, 255, 157, 0.08);
+  border-bottom-color: rgba(0, 255, 157, 0.2);
+}
+
+.demo-banner:not(.demo-banner--live) {
   color: #fbbf24;
   background: rgba(251, 191, 36, 0.1);
-  border-bottom: 1px solid rgba(251, 191, 36, 0.2);
+  border-bottom-color: rgba(251, 191, 36, 0.2);
 }
 
 .demo-banner-hint {

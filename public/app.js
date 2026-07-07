@@ -444,9 +444,10 @@ function renderPriceLookup(data) {
           ? `<span class="text-slate-500 text-sm">${data.internet.error}</span>`
           : '';
 
+      const imgUrl = item.local_image_url || item.internet_cheapest?.image_url;
       card.innerHTML = `
         <div class="comparison-card-header">
-          ${productImageHtml(item.local_image_url, item.local_product_name || data.query, '', 'md')}
+          ${productImageHtml(imgUrl, item.local_product_name || data.query, '', 'md')}
           <div class="comparison-card-title">${item.local_product_name || data.query}</div>
         </div>
         <div class="comparison-card-prices">${localHtml} ${internetHtml}</div>
@@ -691,10 +692,10 @@ function delay(ms) {
 function initDemoBanner() {
   if (!DEMO_MODE) return;
   const banner = document.createElement('div');
-  banner.className = 'demo-banner';
+  banner.className = 'demo-banner demo-banner--live';
   banner.innerHTML = `
-    <span>📱 <strong>Demo-Modus</strong> – Daten werden lokal im Browser gespeichert.</span>
-    <span class="demo-banner-hint">Für echte REWE-Preise: Backend auf Render deployen.</span>
+    <span>🌐 <strong>Live-Modus</strong> – Echte REWE-Preise &amp; Produktbilder</span>
+    <span class="demo-banner-hint">Deine Bons werden lokal im Browser gespeichert</span>
   `;
   document.querySelector('header')?.after(banner);
 }

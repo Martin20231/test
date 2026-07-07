@@ -1,6 +1,7 @@
-const STORAGE_KEY = 'einkaufs-tracker-demo';
-
 import { DEFAULT_PRODUCT_IMAGES } from './productImages.js';
+import { fetchRewePricesBrowser } from './reweClient.js';
+
+const STORAGE_KEY = 'einkaufs-tracker-v3';
 
 const SEED = {
   stores: [
@@ -49,8 +50,9 @@ function load() {
   const data = JSON.parse(raw);
   let updated = false;
   for (const p of data.products) {
-    if (!p.image_url && DEFAULT_PRODUCT_IMAGES[p.name]) {
-      p.image_url = DEFAULT_PRODUCT_IMAGES[p.name];
+    const img = DEFAULT_PRODUCT_IMAGES[p.name];
+    if (img && p.image_url !== img) {
+      p.image_url = img;
       updated = true;
     }
   }
@@ -66,43 +68,7 @@ function storeName(data, storeId) {
   return data.stores.find((s) => s.id === storeId)?.name ?? 'Unbekannt';
 }
 
-function productName(data, productId) {
-  return data.products.find((p) => p.id === productId)?.name ?? 'Unbekannt';
-}
-
-function mockReweProducts(query) {
-  const q = query.toLowerCase();
-  const samples = [
-    { name: 'Hemme Milch Frische Vollmilch 3,7% 1l', price: 1.59, grammage: '1l', image_url: DEFAULT_PRODUCT_IMAGES.Milch },
-    { name: 'ja! Natürlich Bio H-Milch 3,8% 1l', price: 1.29, grammage: '1l', image_url: DEFAULT_PRODUCT_IMAGES.Milch },
-    { name: 'Kerrygold Butter 250g', price: 2.49, grammage: '250g', image_url: DEFAULT_PRODUCT_IMAGES.Butter },
-    { name: 'Vollkornbrot 500g', price: 1.99, grammage: '500g', image_url: DEFAULT_PRODUCT_IMAGES.Brot },
-    { name: 'Freilandeier 10 Stück', price: 3.49, grammage: '10 Stk', image_url: DEFAULT_PRODUCT_IMAGES.Eier },
-    { name: 'Jacobs Krönung 500g', price: 5.99, grammage: '500g', image_url: DEFAULT_PRODUCT_IMAGES.Kaffee },
-  ];
-  return samples
-    .filter((s) => s.name.toLowerCase().includes(q) || q.length < 3)
-    .slice(0, 6)
-    .map((s, i) => ({
-      store: 'REWE',
-      source: 'shop.rewe.de (Demo)',
-      name: s.name,
-      brand: null,
-      price: s.price,
-      grammage: s.grammage,
-      product_id: `demo-${i}`,
-      image_url: s.image_url,
-      url: null,
-      tags: [],
-    }));
-}
-
-export function isDemoMode() {
-  return true;
-}
-
 export async function demoApi(path, options = {}) {
-  await new Promise((r) => setTimeout(r, 150));
   const data = load();
   const method = (options.method || 'GET').toUpperCase();
 
@@ -145,8 +111,18 @@ export async function demoApi(path, options = {}) {
 
   if (path.startsWith('/prices/lookup') && method === 'GET') {
     const query = new URLSearchParams(path.split('?')[1] || '').get('q') || '';
-    const internet = mockReweProducts(query);
     const pattern = query.toLowerCase();
+
+    let internet = [];
+    let internetError = null;
+
+    try {
+      const result = await fetchRewePricesBrowser(query);
+      internet = result.products;
+    } catch (error) {
+      internetError = error.message;
+    }
+
     const localMatches = data.products
       .filter(
         (p) =>
@@ -178,11 +154,12 @@ export async function demoApi(path, options = {}) {
       let verdict = null;
       if (localCheapest && internetCheapest) {
         const diff = localCheapest.price - internetCheapest.price;
-        if (Math.abs(diff) < 0.05) verdict = 'Ähnlicher Preis wie REWE Online (Demo)';
+        if (Math.abs(diff) < 0.05) verdict = 'Ähnlicher Preis wie REWE Online';
         else if (diff < 0)
           verdict = `Dein ${localCheapest.store_name}-Preis ist ${Math.abs(diff).toFixed(2)} € günstiger`;
-        else
-          verdict = `REWE Online ist ${diff.toFixed(2)} € günstiger (Demo-Daten)`;
+        else verdict = `REWE Online ist ${diff.toFixed(2)} € günstiger`;
+      } else if (internetCheapest) {
+        verdict = `REWE Online: ${internetCheapest.price.toFixed(2)} €`;
       }
       return {
         local_product_id: local.id,
@@ -195,13 +172,26 @@ export async function demoApi(path, options = {}) {
       };
     });
 
+    if (localMatches.length === 0 && internet.length > 0) {
+      const cheapest = internet.reduce((min, p) => (p.price < min.price ? p : min));
+      comparisons.push({
+        local_product_id: null,
+        local_product_name: null,
+        local_image_url: cheapest.image_url,
+        local_prices: [],
+        local_cheapest: null,
+        internet_cheapest: cheapest,
+        verdict: `REWE Online ab ${cheapest.price.toFixed(2)} €`,
+      });
+    }
+
     return {
       query,
       fetched_at: new Date().toISOString(),
       internet: {
         available: internet.length > 0,
-        error: null,
-        disclaimer: 'Demo-Modus: Beispiel-Preise. Für echte REWE-Preise Backend nutzen.',
+        error: internetError,
+        disclaimer: 'Live-Preise von shop.rewe.de (aktuell). Ladenpreise können abweichen.',
         products: internet,
       },
       local: { matches: localMatches },
@@ -264,5 +254,5 @@ export async function demoApi(path, options = {}) {
     return receipt;
   }
 
-  throw new Error(`Demo-API: ${method} ${path} nicht unterstützt.`);
+  throw new Error(`API: ${method} ${path} nicht unterstützt.`);
 }

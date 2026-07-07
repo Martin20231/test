@@ -1,7 +1,7 @@
 // API-Konfiguration für GitHub Pages
-// Leer lassen = Demo-Modus (funktioniert ohne Server, Daten im Browser)
-// Für echte REWE-Preise: Backend auf Render deployen und URL eintragen:
-// window.APP_CONFIG = { API_BASE: 'https://deine-api.onrender.com/api' };
+// Leer lassen = Live-Modus mit echten REWE-Preisen (direkt im Browser)
+// Optional: eigenes Backend auf Render für volle Datenbank-Funktion:
+// window.APP_CONFIG = { API_BASE: 'https://einkaufs-tracker-api.onrender.com/api' };
 window.APP_CONFIG = {
   API_BASE: '',
 };
