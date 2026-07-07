@@ -465,6 +465,110 @@
   color: #64748b;
 }
 
+/* ── Preis-Checker Layout ───────────────────────────────── */
+.checker-layout {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .checker-layout {
+    grid-template-columns: minmax(280px, 340px) 1fr;
+  }
+}
+
+.checker-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  position: sticky;
+  top: 5.5rem;
+  max-height: calc(100vh - 7rem);
+}
+
+.product-browser-count {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.product-browser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 200px;
+  max-height: 420px;
+  padding-right: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 1024px) {
+  .product-browser-list {
+    max-height: calc(100vh - 14rem);
+  }
+}
+
+.product-browser-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.875rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  color: inherit;
+}
+
+.product-browser-item:hover {
+  background: rgba(0, 212, 255, 0.06);
+  border-color: rgba(0, 212, 255, 0.15);
+}
+
+.product-browser-item.selected {
+  background: rgba(0, 255, 157, 0.08);
+  border-color: rgba(0, 255, 157, 0.25);
+}
+
+.product-browser-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.product-browser-item-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-browser-item-category {
+  font-size: 0.6875rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-browser-empty {
+  font-size: 0.875rem;
+  color: #64748b;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.checker-details {
+  min-width: 0;
+}
+
 /* ── Chart ─────────────────────────────────────────────── */
 .chart-container {
   position: relative;
@@ -665,6 +769,21 @@
   font-weight: 600;
   color: #00ff9d;
   white-space: nowrap;
+}
+
+.cheapest-badge.loading {
+  background: rgba(100, 116, 139, 0.12);
+  border-color: rgba(100, 116, 139, 0.25);
+  color: #94a3b8;
+}
+
+.internet-tag {
+  font-size: 0.625rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: rgba(0, 212, 255, 0.12);
+  color: #00d4ff;
+  margin-left: 0.25rem;
 }
 
 .store-row {

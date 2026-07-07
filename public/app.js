@@ -44,7 +44,8 @@ const els = {
   resultsTbody: $('#results-tbody'),
   resultsTotal: $('#results-total'),
   productSearch: $('#product-search'),
-  searchSuggestions: $('#search-suggestions'),
+  productBrowserList: $('#product-browser-list'),
+  productBrowserCount: $('#product-browser-count'),
   chartEmpty: $('#chart-empty'),
   chartPanel: $('#chart-panel'),
   chartProductName: $('#chart-product-name'),
@@ -142,6 +143,7 @@ async function loadInitialData() {
     state.stores = storesRes.stores;
     state.products = productsRes.products;
     populateStoreSelect();
+    renderProductBrowser('');
     initProductSearch();
   } catch (err) {
     showToast(`Daten konnten nicht geladen werden: ${err.message}`, 'error');
@@ -316,74 +318,67 @@ function resetUpload() {
 }
 
 // ── Price Checker ───────────────────────────────────────────
-let lookupTimer;
+
+function filterProducts(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return state.products;
+  return state.products.filter(
+    (p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
+  );
+}
+
+function renderProductBrowser(query = '') {
+  const matches = filterProducts(query);
+  els.productBrowserCount.textContent = `${matches.length} von ${state.products.length} Produkten`;
+
+  if (matches.length === 0) {
+    els.productBrowserList.innerHTML =
+      '<p class="product-browser-empty">Keine Produkte gefunden</p>';
+    return;
+  }
+
+  els.productBrowserList.innerHTML = '';
+  for (const product of matches) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'product-browser-item';
+    if (state.selectedProduct?.id === product.id) {
+      btn.classList.add('selected');
+    }
+    btn.innerHTML = `
+      ${productImageHtml(product.image_url, product.name, product.category, 'sm')}
+      <div class="product-browser-item-text">
+        <span class="product-browser-item-name">${product.name}</span>
+        <span class="product-browser-item-category">${product.category}</span>
+      </div>
+    `;
+    btn.addEventListener('click', () => selectProduct(product));
+    els.productBrowserList.appendChild(btn);
+  }
+}
 
 function initProductSearch() {
   els.productSearch.addEventListener('input', () => {
-    const query = els.productSearch.value.trim().toLowerCase();
-    if (query.length < 1) {
-      els.searchSuggestions.classList.add('hidden');
-      hideLookupPanel();
-      return;
-    }
-    const matches = state.products.filter(
-      (p) => p.name.toLowerCase().includes(query) || p.category.toLowerCase().includes(query)
-    );
-    renderSuggestions(matches.slice(0, 12));
-
-    clearTimeout(lookupTimer);
-    if (query.length >= 2) {
-      lookupTimer = setTimeout(() => fetchPriceLookup(query), 500);
-    }
+    const query = els.productSearch.value;
+    renderProductBrowser(query);
   });
 
   els.productSearch.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const query = els.productSearch.value.trim();
-      if (query.length >= 2) fetchPriceLookup(query);
+      const matches = filterProducts(els.productSearch.value);
+      if (matches.length > 0) selectProduct(matches[0]);
     }
   });
-
-  els.productSearch.addEventListener('focus', () => {
-    if (els.productSearch.value.trim()) {
-      els.productSearch.dispatchEvent(new Event('input'));
-    }
-  });
-
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.search-wrap')) {
-      els.searchSuggestions.classList.add('hidden');
-    }
-  });
-}
-
-function renderSuggestions(matches) {
-  if (matches.length === 0) {
-    els.searchSuggestions.classList.add('hidden');
-    return;
-  }
-  els.searchSuggestions.innerHTML = '';
-  for (const product of matches) {
-    const div = document.createElement('div');
-    div.className = 'suggestion-item';
-    div.innerHTML = `
-      <div class="suggestion-item-content">
-        ${productImageHtml(product.image_url, product.name, product.category, 'xs')}
-        <span>${product.name}</span>
-      </div>
-      <span class="suggestion-category">${product.category}</span>
-    `;
-    div.addEventListener('click', () => selectProduct(product));
-    els.searchSuggestions.appendChild(div);
-  }
-  els.searchSuggestions.classList.remove('hidden');
 }
 
 async function selectProduct(product) {
   state.selectedProduct = product;
-  els.productSearch.value = product.name;
-  els.searchSuggestions.classList.add('hidden');
+  renderProductBrowser(els.productSearch.value);
+
+  els.chartEmpty.classList.add('hidden');
+  els.lookupPanel.classList.add('hidden');
+  els.lookupLoading.classList.remove('hidden');
 
   try {
     const [historyData] = await Promise.all([
@@ -392,6 +387,7 @@ async function selectProduct(product) {
     ]);
     renderPriceChart(historyData);
   } catch (err) {
+    els.lookupLoading.classList.add('hidden');
     showToast(err.message, 'error');
   }
 }
@@ -482,6 +478,15 @@ function renderPriceLookup(data) {
 }
 
 function renderPriceChart(data) {
+  if (data.history.length === 0) {
+    els.chartPanel.classList.add('hidden');
+    els.chartEmpty.classList.remove('hidden');
+    els.chartEmpty.querySelector('p').textContent = 'Noch keine Bon-Daten für dieses Produkt';
+    const hint = els.chartEmpty.querySelector('.text-sm');
+    if (hint) hint.textContent = 'Online-Preise findest du unten im REWE-Vergleich';
+    return;
+  }
+
   els.chartEmpty.classList.add('hidden');
   els.chartPanel.classList.remove('hidden');
 
@@ -593,14 +598,17 @@ function renderPriceChart(data) {
 }
 
 // ── Spar-Optimierer ─────────────────────────────────────────
+let optimizerEnrichAbort = false;
+
 async function loadOptimizer() {
+  optimizerEnrichAbort = true;
   els.optimizerLoading.classList.remove('hidden');
   els.optimizerEmpty.classList.add('hidden');
   els.optimizerContent.classList.add('hidden');
 
   try {
     const data = await api('/compare');
-    const comparisons = data.comparisons.filter((c) => c.stores.length > 0);
+    const comparisons = data.comparisons;
 
     els.optimizerLoading.classList.add('hidden');
 
@@ -611,16 +619,94 @@ async function loadOptimizer() {
 
     renderOptimizer(comparisons);
     els.optimizerContent.classList.remove('hidden');
+    enrichOptimizerWithRewe(comparisons);
   } catch (err) {
     els.optimizerLoading.classList.add('hidden');
     showToast(err.message, 'error');
   }
 }
 
+async function enrichOptimizerWithRewe(comparisons) {
+  optimizerEnrichAbort = false;
+  const needsRewe = comparisons.filter((c) => c.stores.length === 0);
+  if (needsRewe.length === 0) return;
+
+  const { fetchRewePricesBrowser } = await import('./reweClient.js');
+
+  for (let i = 0; i < needsRewe.length; i++) {
+    if (optimizerEnrichAbort) return;
+    const product = needsRewe[i];
+    try {
+      const { products } = await fetchRewePricesBrowser(product.product_name, 1);
+      if (optimizerEnrichAbort) return;
+      if (products.length > 0) {
+        const rewe = products[0];
+        product.stores = [
+          {
+            store_id: null,
+            store_name: 'REWE Online',
+            latest_price: rewe.price,
+            latest_date: new Date().toISOString().slice(0, 10),
+            is_internet: true,
+          },
+        ];
+        product.cheapest_store = 'REWE Online';
+        product.cheapest_price = rewe.price;
+        updateOptimizerCard(product);
+      }
+    } catch {
+      // Einzelnes Produkt überspringen
+    }
+    if (i < needsRewe.length - 1) await delay(250);
+  }
+}
+
+function updateOptimizerCard(product) {
+  const cards = els.optimizerCards.querySelectorAll('.product-card');
+  for (const card of cards) {
+    if (card.dataset.productId !== String(product.product_id)) continue;
+
+    const badge = card.querySelector('.cheapest-badge');
+    if (badge && product.cheapest_store) {
+      badge.textContent = `✓ ${product.cheapest_store} · ${formatPrice(product.cheapest_price)}`;
+      badge.classList.remove('loading');
+    }
+
+    const noData = card.querySelector('.no-data');
+    if (noData && product.stores.length > 0) {
+      const storeRows = product.stores
+        .sort((a, b) => a.latest_price - b.latest_price)
+        .map((s) => {
+          const isCheapest = s.store_name === product.cheapest_store;
+          return `
+            <div class="store-row ${isCheapest ? 'cheapest' : ''}">
+              <div class="store-name">
+                <span class="store-dot ${storeDotClass(s.store_name)}"></span>
+                ${s.store_name}
+              </div>
+              <div class="text-right">
+                <div class="store-price">${formatPrice(s.latest_price)}</div>
+                <div class="store-date">${formatDate(s.latest_date)}</div>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+      noData.outerHTML = storeRows;
+    }
+    break;
+  }
+}
+
 function renderOptimizer(comparisons) {
+  const withLocalData = comparisons.filter((c) =>
+    c.stores.some((s) => !s.is_internet)
+  );
   const storeWins = {};
-  for (const c of comparisons) {
-    storeWins[c.cheapest_store] = (storeWins[c.cheapest_store] || 0) + 1;
+  for (const c of withLocalData) {
+    if (c.cheapest_store) {
+      storeWins[c.cheapest_store] = (storeWins[c.cheapest_store] || 0) + 1;
+    }
   }
 
   const topStore = Object.entries(storeWins).sort((a, b) => b[1] - a[1])[0];
@@ -628,15 +714,15 @@ function renderOptimizer(comparisons) {
   els.optimizerSummary.innerHTML = `
     <div class="summary-card">
       <div class="summary-value">${comparisons.length}</div>
-      <div class="summary-label">Produkte verglichen</div>
+      <div class="summary-label">Produkte im Katalog</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-value">${withLocalData.length}</div>
+      <div class="summary-label">Mit Bon-Daten</div>
     </div>
     <div class="summary-card">
       <div class="summary-value">${topStore ? topStore[0] : '–'}</div>
-      <div class="summary-label">Günstigster Laden</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-value">${topStore ? topStore[1] : 0}</div>
-      <div class="summary-label">Produkte günstiger</div>
+      <div class="summary-label">Günstigster Laden (Bon)</div>
     </div>
   `;
 
@@ -644,25 +730,36 @@ function renderOptimizer(comparisons) {
   for (const product of comparisons) {
     const card = document.createElement('div');
     card.className = 'product-card';
+    card.dataset.productId = product.product_id;
 
-    const storeRows = product.stores
-      .sort((a, b) => a.latest_price - b.latest_price)
-      .map((s) => {
-        const isCheapest = s.store_name === product.cheapest_store;
-        return `
-          <div class="store-row ${isCheapest ? 'cheapest' : ''}">
-            <div class="store-name">
-              <span class="store-dot ${storeDotClass(s.store_name)}"></span>
-              ${s.store_name}
-            </div>
-            <div class="text-right">
-              <div class="store-price">${formatPrice(s.latest_price)}</div>
-              <div class="store-date">${formatDate(s.latest_date)}</div>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
+    const hasLocal = product.stores.some((s) => !s.is_internet);
+    const storeRows = product.stores.length
+      ? product.stores
+          .sort((a, b) => a.latest_price - b.latest_price)
+          .map((s) => {
+            const isCheapest = s.store_name === product.cheapest_store;
+            return `
+              <div class="store-row ${isCheapest ? 'cheapest' : ''}">
+                <div class="store-name">
+                  <span class="store-dot ${storeDotClass(s.store_name)}"></span>
+                  ${s.store_name}
+                  ${s.is_internet ? '<span class="internet-tag">Online</span>' : ''}
+                </div>
+                <div class="text-right">
+                  <div class="store-price">${formatPrice(s.latest_price)}</div>
+                  <div class="store-date">${formatDate(s.latest_date)}</div>
+                </div>
+              </div>
+            `;
+          })
+          .join('')
+      : '<p class="no-data">REWE-Preis wird geladen…</p>';
+
+    const badgeContent = product.cheapest_store
+      ? `✓ ${product.cheapest_store} · ${formatPrice(product.cheapest_price)}`
+      : hasLocal
+        ? 'Kein Preis'
+        : 'REWE wird geladen…';
 
     card.innerHTML = `
       <div class="product-card-header">
@@ -673,11 +770,11 @@ function renderOptimizer(comparisons) {
             <div class="product-card-category">${product.category}</div>
           </div>
         </div>
-        <div class="cheapest-badge">
-          ✓ ${product.cheapest_store} · ${formatPrice(product.cheapest_price)}
+        <div class="cheapest-badge ${product.cheapest_store ? '' : 'loading'}">
+          ${badgeContent}
         </div>
       </div>
-      ${storeRows || '<p class="no-data">Keine Preisdaten</p>'}
+      ${storeRows}
     `;
     els.optimizerCards.appendChild(card);
   }
