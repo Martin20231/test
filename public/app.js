@@ -53,6 +53,12 @@ const els = {
   optimizerContent: $('#optimizer-content'),
   optimizerSummary: $('#optimizer-summary'),
   optimizerCards: $('#optimizer-cards'),
+  lookupLoading: $('#lookup-loading'),
+  lookupPanel: $('#lookup-panel'),
+  lookupDisclaimer: $('#lookup-disclaimer'),
+  lookupComparisons: $('#lookup-comparisons'),
+  lookupInternetList: $('#lookup-internet-list'),
+  lookupInternetTbody: $('#lookup-internet-tbody'),
 };
 
 // ── API Helpers ─────────────────────────────────────────────
@@ -301,17 +307,33 @@ function resetUpload() {
 }
 
 // ── Price Checker ───────────────────────────────────────────
+let lookupTimer;
+
 function initProductSearch() {
   els.productSearch.addEventListener('input', () => {
     const query = els.productSearch.value.trim().toLowerCase();
     if (query.length < 1) {
       els.searchSuggestions.classList.add('hidden');
+      hideLookupPanel();
       return;
     }
     const matches = state.products.filter(
       (p) => p.name.toLowerCase().includes(query) || p.category.toLowerCase().includes(query)
     );
     renderSuggestions(matches.slice(0, 6));
+
+    clearTimeout(lookupTimer);
+    if (query.length >= 2) {
+      lookupTimer = setTimeout(() => fetchPriceLookup(query), 500);
+    }
+  });
+
+  els.productSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const query = els.productSearch.value.trim();
+      if (query.length >= 2) fetchPriceLookup(query);
+    }
   });
 
   els.productSearch.addEventListener('focus', () => {
@@ -352,10 +374,89 @@ async function selectProduct(product) {
   els.searchSuggestions.classList.add('hidden');
 
   try {
-    const data = await api(`/products/history/${product.id}`);
-    renderPriceChart(data);
+    const [historyData] = await Promise.all([
+      api(`/products/history/${product.id}`),
+      fetchPriceLookup(product.name),
+    ]);
+    renderPriceChart(historyData);
   } catch (err) {
     showToast(err.message, 'error');
+  }
+}
+
+function hideLookupPanel() {
+  els.lookupLoading.classList.add('hidden');
+  els.lookupPanel.classList.add('hidden');
+}
+
+async function fetchPriceLookup(query) {
+  hideLookupPanel();
+  els.lookupLoading.classList.remove('hidden');
+
+  try {
+    const data = await api(`/prices/lookup?q=${encodeURIComponent(query)}`);
+    els.lookupLoading.classList.add('hidden');
+    renderPriceLookup(data);
+  } catch (err) {
+    els.lookupLoading.classList.add('hidden');
+    showToast(err.message, 'error');
+  }
+}
+
+function renderPriceLookup(data) {
+  els.lookupPanel.classList.remove('hidden');
+  els.lookupDisclaimer.textContent =
+    data.internet.disclaimer || 'Online-Preise können von Ladenpreisen abweichen.';
+
+  els.lookupComparisons.innerHTML = '';
+
+  if (data.comparisons.length === 0) {
+    els.lookupComparisons.innerHTML =
+      '<p class="text-sm text-slate-500">Keine Vergleichsdaten gefunden.</p>';
+  } else {
+    for (const item of data.comparisons) {
+      const card = document.createElement('div');
+      card.className = 'comparison-card';
+      const localHtml = item.local_prices?.length
+        ? item.local_prices
+            .map(
+              (s) =>
+                `<span class="local-price-tag">${s.store_name}: ${formatPrice(s.price)}</span>`
+            )
+            .join('')
+        : '<span class="text-slate-500 text-sm">Keine Bon-Daten</span>';
+
+      const internetHtml = item.internet_cheapest
+        ? `<span class="internet-price-tag">REWE Online: ${formatPrice(item.internet_cheapest.price)}</span>`
+        : data.internet.error
+          ? `<span class="text-slate-500 text-sm">${data.internet.error}</span>`
+          : '';
+
+      card.innerHTML = `
+        <div class="comparison-card-title">${item.local_product_name || data.query}</div>
+        <div class="comparison-card-prices">${localHtml} ${internetHtml}</div>
+        ${item.verdict ? `<p class="comparison-verdict">${item.verdict}</p>` : ''}
+      `;
+      els.lookupComparisons.appendChild(card);
+    }
+  }
+
+  if (data.internet.products?.length) {
+    els.lookupInternetList.classList.remove('hidden');
+    els.lookupInternetTbody.innerHTML = data.internet.products
+      .map(
+        (p) => `
+      <tr>
+        <td>${p.name}</td>
+        <td class="text-slate-400">${p.grammage || '–'}</td>
+        <td class="text-right price-cell">${formatPrice(p.price)}</td>
+      </tr>
+    `
+      )
+      .join('');
+  } else {
+    els.lookupInternetList.classList.add('hidden');
+    els.lookupInternetTbody.innerHTML = '';
   }
 }
 

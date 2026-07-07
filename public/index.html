@@ -174,6 +174,34 @@
           </div>
         </div>
 
+        <div id="lookup-loading" class="panel-card empty-state hidden">
+          <div class="spinner"></div>
+          <p>Preise werden aus dem Internet geladen…</p>
+        </div>
+
+        <div id="lookup-panel" class="panel-card hidden space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="text-lg font-semibold">Internet vs. deine Preise</h3>
+              <p id="lookup-disclaimer" class="text-xs text-slate-500 mt-1"></p>
+            </div>
+            <span class="internet-badge">REWE Online</span>
+          </div>
+          <div id="lookup-comparisons" class="space-y-4"></div>
+          <div id="lookup-internet-list" class="table-wrap hidden">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Produkt (REWE Online)</th>
+                  <th>Menge</th>
+                  <th class="text-right">Preis</th>
+                </tr>
+              </thead>
+              <tbody id="lookup-internet-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div id="chart-empty" class="panel-card empty-state">
           <div class="empty-icon">📊</div>
           <p>Wähle ein Produkt aus</p>
