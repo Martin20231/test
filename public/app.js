@@ -329,7 +329,7 @@ function initProductSearch() {
     const matches = state.products.filter(
       (p) => p.name.toLowerCase().includes(query) || p.category.toLowerCase().includes(query)
     );
-    renderSuggestions(matches.slice(0, 6));
+    renderSuggestions(matches.slice(0, 12));
 
     clearTimeout(lookupTimer);
     if (query.length >= 2) {

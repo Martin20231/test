@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { DEFAULT_PRODUCT_IMAGES } from '../services/productImages.js';
+import { PRODUCT_CATALOG, DEFAULT_PRODUCT_IMAGES } from '../catalog/productCatalog.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dirname, '..', 'data', 'einkauf.db');
@@ -62,11 +62,21 @@ function migrateDatabase(database) {
     database.exec('ALTER TABLE products ADD COLUMN image_url TEXT');
   }
 
-  const updateImage = database.prepare(
-    'UPDATE products SET image_url = ? WHERE name = ? AND (image_url IS NULL OR image_url = \'\')'
+  const findByName = database.prepare('SELECT id FROM products WHERE name = ?');
+  const insertProduct = database.prepare(
+    'INSERT INTO products (name, category, image_url) VALUES (?, ?, ?)'
   );
-  for (const [name, url] of Object.entries(DEFAULT_PRODUCT_IMAGES)) {
-    updateImage.run(url, name);
+  const updateImage = database.prepare(`
+    UPDATE products SET image_url = ?, category = ? WHERE name = ?
+  `);
+
+  for (const product of PRODUCT_CATALOG) {
+    const existing = findByName.get(product.name);
+    if (!existing) {
+      insertProduct.run(product.name, product.category, product.image_url);
+    } else {
+      updateImage.run(product.image_url, product.category, product.name);
+    }
   }
 }
 
@@ -81,15 +91,8 @@ function seedDatabase(database) {
     const insertProduct = database.prepare(
       'INSERT INTO products (name, category, image_url) VALUES (?, ?, ?)'
     );
-    const products = [
-      ['Milch', 'Milchprodukte', DEFAULT_PRODUCT_IMAGES.Milch],
-      ['Butter', 'Milchprodukte', DEFAULT_PRODUCT_IMAGES.Butter],
-      ['Brot', 'Backwaren', DEFAULT_PRODUCT_IMAGES.Brot],
-      ['Eier', 'Milchprodukte', DEFAULT_PRODUCT_IMAGES.Eier],
-      ['Kaffee', 'Getränke', DEFAULT_PRODUCT_IMAGES.Kaffee],
-    ];
-    for (const [name, category, imageUrl] of products) {
-      insertProduct.run(name, category, imageUrl);
+    for (const product of PRODUCT_CATALOG) {
+      insertProduct.run(product.name, product.category, product.image_url);
     }
   }
 }

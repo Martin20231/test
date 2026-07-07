@@ -1,7 +1,15 @@
-import { DEFAULT_PRODUCT_IMAGES } from './productImages.js';
+import { PRODUCT_CATALOG } from './productCatalog.js';
 import { fetchRewePricesBrowser } from './reweClient.js';
 
-const STORAGE_KEY = 'einkaufs-tracker-v3';
+const STORAGE_KEY = 'einkaufs-tracker-v4';
+
+const catalogProducts = PRODUCT_CATALOG.map((p, index) => ({
+  id: index + 1,
+  name: p.name,
+  category: p.category,
+  image_url: p.image_url,
+  display_name: p.display_name,
+}));
 
 const SEED = {
   stores: [
@@ -9,13 +17,7 @@ const SEED = {
     { id: 2, name: 'Aldi' },
     { id: 3, name: 'REWE' },
   ],
-  products: [
-    { id: 1, name: 'Milch', category: 'Milchprodukte', image_url: DEFAULT_PRODUCT_IMAGES.Milch },
-    { id: 2, name: 'Butter', category: 'Milchprodukte', image_url: DEFAULT_PRODUCT_IMAGES.Butter },
-    { id: 3, name: 'Brot', category: 'Backwaren', image_url: DEFAULT_PRODUCT_IMAGES.Brot },
-    { id: 4, name: 'Eier', category: 'Milchprodukte', image_url: DEFAULT_PRODUCT_IMAGES.Eier },
-    { id: 5, name: 'Kaffee', category: 'Getränke', image_url: DEFAULT_PRODUCT_IMAGES.Kaffee },
-  ],
+  products: catalogProducts,
   receipts: [
     {
       id: 1,
@@ -48,11 +50,16 @@ function load() {
     return data;
   }
   const data = JSON.parse(raw);
+  if (data.products?.length < catalogProducts.length) {
+    data.products = catalogProducts;
+    save(data);
+    return data;
+  }
   let updated = false;
   for (const p of data.products) {
-    const img = DEFAULT_PRODUCT_IMAGES[p.name];
-    if (img && p.image_url !== img) {
-      p.image_url = img;
+    const catalog = catalogProducts.find((c) => c.name === p.name);
+    if (catalog?.image_url && p.image_url !== catalog.image_url) {
+      p.image_url = catalog.image_url;
       updated = true;
     }
   }
