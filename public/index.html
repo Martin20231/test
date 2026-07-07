@@ -155,77 +155,61 @@
           <p class="view-subtitle">Verfolge die Preisentwicklung deiner Lieblingsprodukte – dein persönlicher Inflations-Check.</p>
         </div>
 
-        <div class="checker-layout">
-          <!-- Produktbrowser (immer sichtbar) -->
-          <aside class="checker-sidebar panel-card">
-            <label class="field-label" for="product-search">Produkt suchen</label>
-            <div class="search-wrap">
-              <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                id="product-search"
-                class="field-input search-input"
-                placeholder="z.B. Milch, Butter, Kaffee…"
-                autocomplete="off"
-              />
-            </div>
-            <p id="product-browser-count" class="product-browser-count"></p>
-            <div id="product-browser-list" class="product-browser-list"></div>
-          </aside>
+        <div class="panel-card">
+          <label class="field-label" for="product-select">Produkt wählen</label>
+          <select id="product-select" class="field-input product-select">
+            <option value="">Produkt auswählen…</option>
+          </select>
+          <p id="product-select-count" class="product-select-count"></p>
+        </div>
 
-          <!-- Details: Chart + Internet-Vergleich -->
-          <div class="checker-details space-y-6">
-            <div id="chart-empty" class="panel-card empty-state">
-              <div class="empty-icon">📊</div>
-              <p>Wähle ein Produkt aus der Liste</p>
-              <p class="text-sm text-slate-500">Preisverlauf und Online-Vergleich erscheinen hier</p>
-            </div>
+        <div id="chart-empty" class="panel-card empty-state">
+          <div class="empty-icon">📊</div>
+          <p>Wähle ein Produkt aus dem Menü</p>
+          <p class="text-sm text-slate-500">Preisverlauf und REWE-Vergleich erscheinen hier</p>
+        </div>
 
-            <div id="chart-panel" class="panel-card hidden">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-                <div class="chart-header-inner flex items-center gap-4">
-                  <div id="chart-product-image"></div>
-                  <div>
-                    <h3 id="chart-product-name" class="text-xl font-bold"></h3>
-                    <p id="chart-meta" class="text-sm text-slate-400 mt-1"></p>
-                  </div>
-                </div>
-                <div id="chart-stats" class="flex gap-4 flex-wrap"></div>
-              </div>
-              <div class="chart-container">
-                <canvas id="price-chart"></canvas>
+        <div id="chart-panel" class="panel-card hidden">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+            <div class="chart-header-inner flex items-center gap-4">
+              <div id="chart-product-image"></div>
+              <div>
+                <h3 id="chart-product-name" class="text-xl font-bold"></h3>
+                <p id="chart-meta" class="text-sm text-slate-400 mt-1"></p>
               </div>
             </div>
+            <div id="chart-stats" class="flex gap-4 flex-wrap"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="price-chart"></canvas>
+          </div>
+        </div>
 
-            <div id="lookup-loading" class="panel-card empty-state hidden">
-              <div class="spinner"></div>
-              <p>REWE-Preise werden geladen…</p>
-            </div>
+        <div id="lookup-loading" class="panel-card empty-state hidden">
+          <div class="spinner"></div>
+          <p>REWE-Preise werden geladen…</p>
+        </div>
 
-            <div id="lookup-panel" class="panel-card hidden space-y-6">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h3 class="text-lg font-semibold">Internet vs. deine Preise</h3>
-                  <p id="lookup-disclaimer" class="text-xs text-slate-500 mt-1"></p>
-                </div>
-                <span class="internet-badge">REWE Online</span>
-              </div>
-              <div id="lookup-comparisons" class="space-y-4"></div>
-              <div id="lookup-internet-list" class="table-wrap hidden">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Produkt</th>
-                      <th>Menge</th>
-                      <th class="text-right">Preis</th>
-                    </tr>
-                  </thead>
-                  <tbody id="lookup-internet-tbody"></tbody>
-                </table>
-              </div>
+        <div id="lookup-panel" class="panel-card hidden space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="text-lg font-semibold">Internet vs. deine Preise</h3>
+              <p id="lookup-disclaimer" class="text-xs text-slate-500 mt-1"></p>
             </div>
+            <span class="internet-badge">REWE Online</span>
+          </div>
+          <div id="lookup-comparisons" class="space-y-4"></div>
+          <div id="lookup-internet-list" class="table-wrap hidden">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Produkt</th>
+                  <th>Menge</th>
+                  <th class="text-right">Preis</th>
+                </tr>
+              </thead>
+              <tbody id="lookup-internet-tbody"></tbody>
+            </table>
           </div>
         </div>
       </section>

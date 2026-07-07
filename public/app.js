@@ -43,9 +43,8 @@ const els = {
   resultsTableWrap: $('#results-table-wrap'),
   resultsTbody: $('#results-tbody'),
   resultsTotal: $('#results-total'),
-  productSearch: $('#product-search'),
-  productBrowserList: $('#product-browser-list'),
-  productBrowserCount: $('#product-browser-count'),
+  productSelect: $('#product-select'),
+  productSelectCount: $('#product-select-count'),
   chartEmpty: $('#chart-empty'),
   chartPanel: $('#chart-panel'),
   chartProductName: $('#chart-product-name'),
@@ -143,8 +142,8 @@ async function loadInitialData() {
     state.stores = storesRes.stores;
     state.products = productsRes.products;
     populateStoreSelect();
-    renderProductBrowser('');
-    initProductSearch();
+    populateProductSelect();
+    initProductSelect();
   } catch (err) {
     showToast(`Daten konnten nicht geladen werden: ${err.message}`, 'error');
   }
@@ -319,62 +318,52 @@ function resetUpload() {
 
 // ── Price Checker ───────────────────────────────────────────
 
-function filterProducts(query) {
-  const q = query.trim().toLowerCase();
-  if (!q) return state.products;
-  return state.products.filter(
-    (p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
-  );
-}
-
-function renderProductBrowser(query = '') {
-  const matches = filterProducts(query);
-  els.productBrowserCount.textContent = `${matches.length} von ${state.products.length} Produkten`;
-
-  if (matches.length === 0) {
-    els.productBrowserList.innerHTML =
-      '<p class="product-browser-empty">Keine Produkte gefunden</p>';
-    return;
+function populateProductSelect() {
+  const byCategory = {};
+  for (const product of state.products) {
+    if (!byCategory[product.category]) byCategory[product.category] = [];
+    byCategory[product.category].push(product);
   }
 
-  els.productBrowserList.innerHTML = '';
-  for (const product of matches) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'product-browser-item';
-    if (state.selectedProduct?.id === product.id) {
-      btn.classList.add('selected');
+  const categories = Object.keys(byCategory).sort((a, b) => a.localeCompare(b, 'de'));
+  els.productSelect.innerHTML = '<option value="">Produkt auswählen…</option>';
+
+  for (const category of categories) {
+    const group = document.createElement('optgroup');
+    group.label = category;
+    const sorted = byCategory[category].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    for (const product of sorted) {
+      const opt = document.createElement('option');
+      opt.value = product.id;
+      const priceHint = product.rewe_price ? ` · ${formatPrice(product.rewe_price)}` : '';
+      opt.textContent = `${product.name}${priceHint}`;
+      group.appendChild(opt);
     }
-    btn.innerHTML = `
-      ${productImageHtml(product.image_url, product.name, product.category, 'sm')}
-      <div class="product-browser-item-text">
-        <span class="product-browser-item-name">${product.name}</span>
-        <span class="product-browser-item-category">${product.category}</span>
-      </div>
-    `;
-    btn.addEventListener('click', () => selectProduct(product));
-    els.productBrowserList.appendChild(btn);
+    els.productSelect.appendChild(group);
   }
+
+  els.productSelectCount.textContent = `${state.products.length} REWE-Produkte verfügbar`;
 }
 
-function initProductSearch() {
-  els.productSearch.addEventListener('input', () => {
-    const query = els.productSearch.value;
-    renderProductBrowser(query);
-  });
-
-  els.productSearch.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const matches = filterProducts(els.productSearch.value);
-      if (matches.length > 0) selectProduct(matches[0]);
+function initProductSelect() {
+  els.productSelect.addEventListener('change', () => {
+    const id = Number(els.productSelect.value);
+    if (!id) {
+      state.selectedProduct = null;
+      els.chartPanel.classList.add('hidden');
+      els.lookupPanel.classList.add('hidden');
+      els.lookupLoading.classList.add('hidden');
+      els.chartEmpty.classList.remove('hidden');
+      return;
     }
+    const product = state.products.find((p) => p.id === id);
+    if (product) selectProduct(product);
   });
 }
 
 async function selectProduct(product) {
   state.selectedProduct = product;
-  renderProductBrowser(els.productSearch.value);
+  els.productSelect.value = String(product.id);
 
   els.chartEmpty.classList.add('hidden');
   els.lookupPanel.classList.add('hidden');
@@ -598,17 +587,15 @@ function renderPriceChart(data) {
 }
 
 // ── Spar-Optimierer ─────────────────────────────────────────
-let optimizerEnrichAbort = false;
 
 async function loadOptimizer() {
-  optimizerEnrichAbort = true;
   els.optimizerLoading.classList.remove('hidden');
   els.optimizerEmpty.classList.add('hidden');
   els.optimizerContent.classList.add('hidden');
 
   try {
     const data = await api('/compare');
-    const comparisons = data.comparisons;
+    const comparisons = data.comparisons.map(applyCatalogRewePrice);
 
     els.optimizerLoading.classList.add('hidden');
 
@@ -619,83 +606,46 @@ async function loadOptimizer() {
 
     renderOptimizer(comparisons);
     els.optimizerContent.classList.remove('hidden');
-    enrichOptimizerWithRewe(comparisons);
   } catch (err) {
     els.optimizerLoading.classList.add('hidden');
     showToast(err.message, 'error');
   }
 }
 
-async function enrichOptimizerWithRewe(comparisons) {
-  optimizerEnrichAbort = false;
-  const needsRewe = comparisons.filter((c) => c.stores.length === 0);
-  if (needsRewe.length === 0) return;
+function applyCatalogRewePrice(product) {
+  const catalog = state.products.find((p) => p.id === product.product_id);
+  if (!catalog?.rewe_price) return product;
 
-  const { fetchRewePricesBrowser } = await import('./reweClient.js');
+  const hasLocal = product.stores.some((s) => !s.is_internet);
+  const reweRow = {
+    store_id: null,
+    store_name: 'REWE Online',
+    latest_price: catalog.rewe_price,
+    latest_date: new Date().toISOString().slice(0, 10),
+    is_internet: true,
+  };
 
-  for (let i = 0; i < needsRewe.length; i++) {
-    if (optimizerEnrichAbort) return;
-    const product = needsRewe[i];
-    try {
-      const { products } = await fetchRewePricesBrowser(product.product_name, 1);
-      if (optimizerEnrichAbort) return;
-      if (products.length > 0) {
-        const rewe = products[0];
-        product.stores = [
-          {
-            store_id: null,
-            store_name: 'REWE Online',
-            latest_price: rewe.price,
-            latest_date: new Date().toISOString().slice(0, 10),
-            is_internet: true,
-          },
-        ];
-        product.cheapest_store = 'REWE Online';
-        product.cheapest_price = rewe.price;
-        updateOptimizerCard(product);
-      }
-    } catch {
-      // Einzelnes Produkt überspringen
-    }
-    if (i < needsRewe.length - 1) await delay(250);
+  if (!hasLocal && product.stores.length === 0) {
+    return {
+      ...product,
+      stores: [reweRow],
+      cheapest_store: 'REWE Online',
+      cheapest_price: catalog.rewe_price,
+    };
   }
-}
 
-function updateOptimizerCard(product) {
-  const cards = els.optimizerCards.querySelectorAll('.product-card');
-  for (const card of cards) {
-    if (card.dataset.productId !== String(product.product_id)) continue;
-
-    const badge = card.querySelector('.cheapest-badge');
-    if (badge && product.cheapest_store) {
-      badge.textContent = `✓ ${product.cheapest_store} · ${formatPrice(product.cheapest_price)}`;
-      badge.classList.remove('loading');
-    }
-
-    const noData = card.querySelector('.no-data');
-    if (noData && product.stores.length > 0) {
-      const storeRows = product.stores
-        .sort((a, b) => a.latest_price - b.latest_price)
-        .map((s) => {
-          const isCheapest = s.store_name === product.cheapest_store;
-          return `
-            <div class="store-row ${isCheapest ? 'cheapest' : ''}">
-              <div class="store-name">
-                <span class="store-dot ${storeDotClass(s.store_name)}"></span>
-                ${s.store_name}
-              </div>
-              <div class="text-right">
-                <div class="store-price">${formatPrice(s.latest_price)}</div>
-                <div class="store-date">${formatDate(s.latest_date)}</div>
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-      noData.outerHTML = storeRows;
-    }
-    break;
+  if (!product.stores.some((s) => s.is_internet)) {
+    const stores = [...product.stores, reweRow];
+    const cheapest = stores.reduce((min, s) => (s.latest_price < min.latest_price ? s : min));
+    return {
+      ...product,
+      stores,
+      cheapest_store: cheapest.store_name,
+      cheapest_price: cheapest.latest_price,
+    };
   }
+
+  return product;
 }
 
 function renderOptimizer(comparisons) {
@@ -753,13 +703,11 @@ function renderOptimizer(comparisons) {
             `;
           })
           .join('')
-      : '<p class="no-data">REWE-Preis wird geladen…</p>';
+      : '<p class="no-data">Keine Preisdaten – REWE-Preis im Katalog nicht verfügbar</p>';
 
     const badgeContent = product.cheapest_store
       ? `✓ ${product.cheapest_store} · ${formatPrice(product.cheapest_price)}`
-      : hasLocal
-        ? 'Kein Preis'
-        : 'REWE wird geladen…';
+      : 'Kein Preis';
 
     card.innerHTML = `
       <div class="product-card-header">
@@ -770,7 +718,7 @@ function renderOptimizer(comparisons) {
             <div class="product-card-category">${product.category}</div>
           </div>
         </div>
-        <div class="cheapest-badge ${product.cheapest_store ? '' : 'loading'}">
+        <div class="cheapest-badge">
           ${badgeContent}
         </div>
       </div>

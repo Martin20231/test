@@ -1,14 +1,17 @@
 import { PRODUCT_CATALOG } from './productCatalog.js';
 import { fetchRewePricesBrowser } from './reweClient.js';
 
-const STORAGE_KEY = 'einkaufs-tracker-v4';
+const STORAGE_KEY = 'einkaufs-tracker-v5';
 
 const catalogProducts = PRODUCT_CATALOG.map((p, index) => ({
   id: index + 1,
   name: p.name,
   category: p.category,
   image_url: p.image_url,
-  display_name: p.display_name,
+  rewe_id: p.rewe_id,
+  rewe_price: p.rewe_price,
+  grammage: p.grammage,
+  brand: p.brand,
 }));
 
 const SEED = {
@@ -50,16 +53,25 @@ function load() {
     return data;
   }
   const data = JSON.parse(raw);
-  if (data.products?.length < catalogProducts.length) {
+  if (data.products?.length !== catalogProducts.length) {
     data.products = catalogProducts;
     save(data);
     return data;
   }
   let updated = false;
   for (const p of data.products) {
-    const catalog = catalogProducts.find((c) => c.name === p.name);
-    if (catalog?.image_url && p.image_url !== catalog.image_url) {
+    const catalog = catalogProducts.find((c) => c.id === p.id || c.name === p.name);
+    if (!catalog) continue;
+    if (catalog.image_url && p.image_url !== catalog.image_url) {
       p.image_url = catalog.image_url;
+      updated = true;
+    }
+    if (catalog.rewe_price != null && p.rewe_price !== catalog.rewe_price) {
+      p.rewe_price = catalog.rewe_price;
+      updated = true;
+    }
+    if (catalog.name !== p.name) {
+      p.name = catalog.name;
       updated = true;
     }
   }

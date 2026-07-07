@@ -45,7 +45,11 @@ app.get('/api/stores', (_req, res, next) => {
 app.get('/api/products', (_req, res, next) => {
   try {
     const products = getDb()
-      .prepare('SELECT id, name, category, image_url FROM products ORDER BY name')
+      .prepare(`
+        SELECT p.id, p.name, p.category, p.image_url, p.rewe_id, p.rewe_price, p.grammage, p.brand
+        FROM products p
+        ORDER BY p.category, p.name
+      `)
       .all();
     res.json({ products });
   } catch (error) {

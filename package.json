@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "fetch-catalog": "node scripts/fetch-rewe-catalog.js"
   },
   "keywords": ["einkauf", "tracker", "express", "sqlite"],
   "license": "MIT",

@@ -58,24 +58,60 @@ export function initDatabase() {
 
 function migrateDatabase(database) {
   const columns = database.prepare('PRAGMA table_info(products)').all();
-  if (!columns.some((c) => c.name === 'image_url')) {
+  const colNames = columns.map((c) => c.name);
+
+  if (!colNames.includes('image_url')) {
     database.exec('ALTER TABLE products ADD COLUMN image_url TEXT');
   }
+  if (!colNames.includes('rewe_id')) {
+    database.exec('ALTER TABLE products ADD COLUMN rewe_id TEXT');
+  }
+  if (!colNames.includes('rewe_price')) {
+    database.exec('ALTER TABLE products ADD COLUMN rewe_price REAL');
+  }
+  if (!colNames.includes('grammage')) {
+    database.exec('ALTER TABLE products ADD COLUMN grammage TEXT');
+  }
+  if (!colNames.includes('brand')) {
+    database.exec('ALTER TABLE products ADD COLUMN brand TEXT');
+  }
 
+  const findByReweId = database.prepare('SELECT id FROM products WHERE rewe_id = ?');
   const findByName = database.prepare('SELECT id FROM products WHERE name = ?');
-  const insertProduct = database.prepare(
-    'INSERT INTO products (name, category, image_url) VALUES (?, ?, ?)'
-  );
-  const updateImage = database.prepare(`
-    UPDATE products SET image_url = ?, category = ? WHERE name = ?
+  const insertProduct = database.prepare(`
+    INSERT INTO products (name, category, image_url, rewe_id, rewe_price, grammage, brand)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateProduct = database.prepare(`
+    UPDATE products
+    SET image_url = ?, category = ?, rewe_id = ?, rewe_price = ?, grammage = ?, brand = ?
+    WHERE id = ?
   `);
 
   for (const product of PRODUCT_CATALOG) {
-    const existing = findByName.get(product.name);
+    const existing =
+      (product.rewe_id && findByReweId.get(product.rewe_id)) ||
+      findByName.get(product.name);
     if (!existing) {
-      insertProduct.run(product.name, product.category, product.image_url);
+      insertProduct.run(
+        product.name,
+        product.category,
+        product.image_url,
+        product.rewe_id ?? null,
+        product.rewe_price ?? null,
+        product.grammage ?? null,
+        product.brand ?? null
+      );
     } else {
-      updateImage.run(product.image_url, product.category, product.name);
+      updateProduct.run(
+        product.image_url,
+        product.category,
+        product.rewe_id ?? null,
+        product.rewe_price ?? null,
+        product.grammage ?? null,
+        product.brand ?? null,
+        existing.id
+      );
     }
   }
 }
@@ -88,11 +124,20 @@ function seedDatabase(database) {
 
   const productCount = database.prepare('SELECT COUNT(*) AS count FROM products').get().count;
   if (productCount === 0) {
-    const insertProduct = database.prepare(
-      'INSERT INTO products (name, category, image_url) VALUES (?, ?, ?)'
-    );
+    const insertProduct = database.prepare(`
+      INSERT INTO products (name, category, image_url, rewe_id, rewe_price, grammage, brand)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
     for (const product of PRODUCT_CATALOG) {
-      insertProduct.run(product.name, product.category, product.image_url);
+      insertProduct.run(
+        product.name,
+        product.category,
+        product.image_url,
+        product.rewe_id ?? null,
+        product.rewe_price ?? null,
+        product.grammage ?? null,
+        product.brand ?? null
+      );
     }
   }
 }
