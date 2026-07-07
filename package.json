@@ -1,0 +1,17 @@
+{
+  "name": "einkaufs-tracker-backend",
+  "version": "1.0.0",
+  "description": "Backend für eine Einkaufs-Tracker-App mit Node.js, Express und SQLite",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["einkauf", "tracker", "express", "sqlite"],
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "express": "^5.1.0"
+  }
+}
