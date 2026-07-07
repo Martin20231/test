@@ -29,6 +29,46 @@ npm run dev
 
 Der Server läuft standardmäßig auf `http://localhost:3000`. Das Frontend ist unter derselben URL erreichbar.
 
+## Online über GitHub Pages
+
+GitHub Pages hostet **nur das Frontend** (HTML/CSS/JS). Das Backend (Node.js + SQLite) muss separat laufen – z.B. kostenlos auf [Render.com](https://render.com).
+
+### Schritt 1: PR mergen
+
+Merge den Pull Request auf GitHub in den `main`-Branch.
+
+### Schritt 2: GitHub Pages aktivieren
+
+1. Öffne dein Repo auf GitHub: https://github.com/Martin20231/test
+2. Gehe zu **Settings** → **Pages**
+3. Unter **Build and deployment** → **Source** wähle: **GitHub Actions**
+4. Nach dem nächsten Push auf `main` wird die Seite automatisch deployed
+
+### Schritt 3: Webseite aufrufen
+
+Deine App ist dann erreichbar unter:
+
+**https://martin20231.github.io/test/**
+
+### Schritt 4: Backend hosten (für volle Funktion)
+
+Ohne Backend siehst du die Oberfläche, aber API-Aufrufe schlagen fehl.
+
+1. Gehe zu [render.com](https://render.com) und verbinde dein GitHub-Repo
+2. Wähle **New Web Service** → Repo `test` → Render erkennt `render.yaml` automatisch
+3. Nach dem Deploy kopiere die URL (z.B. `https://einkaufs-tracker-api.onrender.com`)
+4. Trage sie in [`public/config.js`](public/config.js) ein:
+
+```js
+window.APP_CONFIG = {
+  API_BASE: 'https://einkaufs-tracker-api.onrender.com/api',
+};
+```
+
+5. Commit & Push → GitHub Pages aktualisiert sich automatisch
+
+> **Hinweis:** Der kostenlose Render-Plan schläft nach Inaktivität ein – der erste Aufruf kann ~30 Sekunden dauern.
+
 ## Frontend
 
 Single-Page-App mit drei Dashboards:

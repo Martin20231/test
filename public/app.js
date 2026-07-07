@@ -1,4 +1,15 @@
-const API = '/api';
+function resolveApiBase() {
+  const configured = window.APP_CONFIG?.API_BASE?.trim();
+  if (configured) return configured.replace(/\/$/, '');
+
+  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+    return '/api';
+  }
+
+  return '';
+}
+
+const API = resolveApiBase();
 
 const state = {
   stores: [],
@@ -46,6 +57,11 @@ const els = {
 
 // ── API Helpers ─────────────────────────────────────────────
 async function api(path, options = {}) {
+  if (!API) {
+    throw new Error(
+      'Kein Backend konfiguriert. Trage die API-URL in public/config.js ein oder starte lokal mit npm start.'
+    );
+  }
   const res = await fetch(`${API}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
