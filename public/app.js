@@ -22,6 +22,9 @@ const state = {
   selectedStoreId: null,
   priceChart: null,
   selectedProduct: null,
+  checkerStoreId: null,
+  checkerCategory: 'all',
+  productPricesByStore: new Map(),
 };
 
 // ── DOM References ──────────────────────────────────────────
@@ -43,8 +46,11 @@ const els = {
   resultsTableWrap: $('#results-table-wrap'),
   resultsTbody: $('#results-tbody'),
   resultsTotal: $('#results-total'),
-  productSelect: $('#product-select'),
-  productSelectCount: $('#product-select-count'),
+  productGrid: $('#product-grid'),
+  productGridCount: $('#product-grid-count'),
+  checkerStoreChips: $('#checker-store-chips'),
+  checkerCategoryChips: $('#checker-category-chips'),
+  checkerHint: $('#checker-hint'),
   chartEmpty: $('#chart-empty'),
   chartPanel: $('#chart-panel'),
   chartProductName: $('#chart-product-name'),
@@ -106,6 +112,9 @@ function storeDotClass(name) {
   if (lower.includes('lidl')) return 'lidl';
   if (lower.includes('aldi')) return 'aldi';
   if (lower.includes('rewe')) return 'rewe';
+  if (lower.includes('netto')) return 'netto';
+  if (lower.includes('edeka')) return 'edeka';
+  if (lower.includes('rossmann')) return 'rossmann';
   return 'other';
 }
 
@@ -128,6 +137,7 @@ function initNavigation() {
         targetView.classList.add('active');
       }
       if (view === 'optimizer') loadOptimizer();
+      if (view === 'checker') initCheckerBrowser();
     });
   });
 }
@@ -142,8 +152,8 @@ async function loadInitialData() {
     state.stores = storesRes.stores;
     state.products = productsRes.products;
     populateStoreSelect();
-    populateProductSelect();
-    initProductSelect();
+    await loadCompareCache();
+    initCheckerBrowser();
   } catch (err) {
     showToast(`Daten konnten nicht geladen werden: ${err.message}`, 'error');
   }
@@ -340,6 +350,8 @@ async function saveReceipt() {
     showToast('Kassenbon erfolgreich gespeichert!');
     resetUpload();
     await loadInitialData();
+    await loadCompareCache();
+    renderProductGrid();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
@@ -365,52 +377,165 @@ function resetUpload() {
 
 // ── Price Checker ───────────────────────────────────────────
 
-function populateProductSelect() {
-  const byCategory = {};
-  for (const product of state.products) {
-    if (!byCategory[product.category]) byCategory[product.category] = [];
-    byCategory[product.category].push(product);
-  }
+const CATEGORY_ICONS = {
+  'Milchprodukte': '🥛',
+  Backwaren: '🍞',
+  Getränke: '🥤',
+  'Obst & Gemüse': '🥬',
+  'Fleisch & Fisch': '🥩',
+  Grundnahrungsmittel: '🌾',
+  Tiefkühl: '❄️',
+  Süßigkeiten: '🍫',
+  'Haushalt & Drogerie': '🧴',
+  'Bon-Scan': '🧾',
+};
 
-  const categories = Object.keys(byCategory).sort((a, b) => a.localeCompare(b, 'de'));
-  els.productSelect.innerHTML = '<option value="">Produkt auswählen…</option>';
-
-  for (const category of categories) {
-    const group = document.createElement('optgroup');
-    group.label = category;
-    const sorted = byCategory[category].sort((a, b) => a.name.localeCompare(b.name, 'de'));
-    for (const product of sorted) {
-      const opt = document.createElement('option');
-      opt.value = product.id;
-      const priceHint = product.rewe_price ? ` · ${formatPrice(product.rewe_price)}` : '';
-      opt.textContent = `${product.name}${priceHint}`;
-      group.appendChild(opt);
+async function loadCompareCache() {
+  try {
+    const data = await api('/compare');
+    state.productPricesByStore.clear();
+    for (const row of data.comparisons) {
+      state.productPricesByStore.set(row.product_id, row.stores);
     }
-    els.productSelect.appendChild(group);
+  } catch {
+    // Vergleich optional
   }
-
-  els.productSelectCount.textContent = `${state.products.length} REWE-Produkte verfügbar`;
 }
 
-function initProductSelect() {
-  els.productSelect.addEventListener('change', () => {
-    const id = Number(els.productSelect.value);
-    if (!id) {
-      state.selectedProduct = null;
-      els.chartPanel.classList.add('hidden');
-      els.lookupPanel.classList.add('hidden');
-      els.lookupLoading.classList.add('hidden');
-      els.chartEmpty.classList.remove('hidden');
-      return;
-    }
-    const product = state.products.find((p) => p.id === id);
-    if (product) selectProduct(product);
+function initCheckerBrowser() {
+  if (!state.products.length) return;
+  renderCheckerStoreChips();
+  renderCheckerCategoryChips();
+  renderProductGrid();
+}
+
+function renderCheckerStoreChips() {
+  els.checkerStoreChips.innerHTML = '';
+
+  const allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.className = `store-chip ${state.checkerStoreId === 'all' ? 'active' : ''}`;
+  allBtn.innerHTML = '<span class="store-dot other"></span> Alle';
+  allBtn.addEventListener('click', () => {
+    state.checkerStoreId = 'all';
+    renderCheckerStoreChips();
+    renderProductGrid();
   });
+  els.checkerStoreChips.appendChild(allBtn);
+
+  for (const store of state.stores) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `store-chip ${state.checkerStoreId === store.id ? 'active' : ''}`;
+    btn.innerHTML = `<span class="store-dot ${storeDotClass(store.name)}"></span> ${store.name}`;
+    btn.addEventListener('click', () => {
+      state.checkerStoreId = store.id;
+      renderCheckerStoreChips();
+      renderProductGrid();
+    });
+    els.checkerStoreChips.appendChild(btn);
+  }
+}
+
+function renderCheckerCategoryChips() {
+  const categories = [...new Set(state.products.map((p) => p.category))].sort((a, b) =>
+    a.localeCompare(b, 'de')
+  );
+
+  els.checkerCategoryChips.innerHTML = '';
+
+  const allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.className = `category-chip ${state.checkerCategory === 'all' ? 'active' : ''}`;
+  allBtn.textContent = 'Alle';
+  allBtn.addEventListener('click', () => {
+    state.checkerCategory = 'all';
+    renderCheckerCategoryChips();
+    renderProductGrid();
+  });
+  els.checkerCategoryChips.appendChild(allBtn);
+
+  for (const category of categories) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `category-chip ${state.checkerCategory === category ? 'active' : ''}`;
+    btn.textContent = `${CATEGORY_ICONS[category] || '🛒'} ${category}`;
+    btn.addEventListener('click', () => {
+      state.checkerCategory = category;
+      renderCheckerCategoryChips();
+      renderProductGrid();
+    });
+    els.checkerCategoryChips.appendChild(btn);
+  }
+}
+
+function getFilteredCheckerProducts() {
+  let products = state.products;
+  if (state.checkerCategory !== 'all') {
+    products = products.filter((p) => p.category === state.checkerCategory);
+  }
+  return products.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+
+function getStorePriceForProduct(productId) {
+  if (state.checkerStoreId == null || state.checkerStoreId === 'all') return null;
+  const store = state.stores.find((s) => s.id === state.checkerStoreId);
+  if (!store) return null;
+  const prices = state.productPricesByStore.get(productId) || [];
+  const local = prices.find(
+    (p) => !p.is_internet && p.store_name.toLowerCase() === store.name.toLowerCase()
+  );
+  return local?.latest_price ?? null;
+}
+
+function renderProductGrid() {
+  const needsStore = state.checkerStoreId == null;
+  els.checkerHint.classList.toggle('hidden', !needsStore);
+  els.productGrid.classList.toggle('hidden', needsStore);
+
+  if (needsStore) {
+    els.productGridCount.textContent = '';
+    els.productGrid.innerHTML = '';
+    return;
+  }
+
+  const products = getFilteredCheckerProducts();
+  const storeName =
+    state.checkerStoreId === 'all'
+      ? 'allen Märkten'
+      : state.stores.find((s) => s.id === state.checkerStoreId)?.name ?? '';
+
+  els.productGridCount.textContent = `${products.length} Produkte · ${storeName}${
+    state.checkerCategory !== 'all' ? ` · ${state.checkerCategory}` : ''
+  }`;
+
+  els.productGrid.innerHTML = '';
+  for (const product of products) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'product-grid-card';
+    if (state.selectedProduct?.id === product.id) btn.classList.add('selected');
+
+    const storePrice = getStorePriceForProduct(product.id);
+    const priceHtml = storePrice
+      ? `<span class="product-grid-store-price">${formatPrice(storePrice)}</span>`
+      : product.rewe_price
+        ? `<span class="product-grid-rewe-price">REWE ${formatPrice(product.rewe_price)}</span>`
+        : '';
+
+    btn.innerHTML = `
+      ${productImageHtml(product.image_url, product.name, product.category, 'md')}
+      <span class="product-grid-name">${product.name}</span>
+      ${priceHtml}
+    `;
+    btn.addEventListener('click', () => selectProduct(product));
+    els.productGrid.appendChild(btn);
+  }
 }
 
 async function selectProduct(product) {
   state.selectedProduct = product;
-  els.productSelect.value = String(product.id);
+  renderProductGrid();
 
   els.chartEmpty.classList.add('hidden');
   els.lookupPanel.classList.add('hidden');

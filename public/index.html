@@ -152,15 +152,19 @@
       <section id="view-checker" class="view hidden space-y-6">
         <div class="view-header">
           <h2 class="view-title">Preis-Checker</h2>
-          <p class="view-subtitle">Verfolge die Preisentwicklung deiner Lieblingsprodukte – dein persönlicher Inflations-Check.</p>
+          <p class="view-subtitle">Markt und Kategorie antippen – dann alle Produkte durchstöbern und Preise vergleichen.</p>
         </div>
 
-        <div class="panel-card">
-          <label class="field-label" for="product-select">Produkt wählen</label>
-          <select id="product-select" class="field-input product-select">
-            <option value="">Produkt auswählen…</option>
-          </select>
-          <p id="product-select-count" class="product-select-count"></p>
+        <div class="panel-card checker-browser">
+          <p class="field-label">Markt wählen</p>
+          <div id="checker-store-chips" class="store-chips" role="tablist"></div>
+
+          <p class="field-label mt-6">Kategorie</p>
+          <div id="checker-category-chips" class="category-chips" role="tablist"></div>
+
+          <p id="product-grid-count" class="product-grid-count"></p>
+          <div id="product-grid" class="product-grid"></div>
+          <p id="checker-hint" class="checker-hint">Tippe einen Markt, dann ein Produkt.</p>
         </div>
 
         <div id="chart-empty" class="panel-card empty-state">
