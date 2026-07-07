@@ -1,34 +1,23 @@
-# Einmaliges Setup (1 Klick)
+# GitHub Pages Setup
 
-Der Code ist auf GitHub gemergt. Für die Webseite fehlt nur noch **ein Schritt**, den nur du als Repo-Besitzer machen kannst:
+## Problem behoben
 
-## GitHub Pages aktivieren
+GitHub Pages hat vorher die **README** als Webseite angezeigt (Jekyll).  
+Die App liegt jetzt im **`docs/`**-Ordner mit `.nojekyll` (kein Jekyll).
+
+## Einmalig in GitHub Settings ändern
 
 1. Öffne: **https://github.com/Martin20231/test/settings/pages**
-2. Unter **Build and deployment** → **Source** wähle: **Deploy from a branch**
-3. Branch: **gh-pages** · Ordner: **/ (root)**
-4. Auf **Save** klicken
-5. Nach 1–2 Minuten erreichbar unter: **https://martin20231.github.io/test/**
+2. **Source** → **Deploy from a branch**
+3. Branch: **`main`** · Ordner: **`/docs`**
+4. **Save** klicken
+5. 1–2 Minuten warten
 
-> Der `gh-pages`-Branch mit dem Frontend wurde bereits für dich erstellt.
+## Deine App-URL
 
-## Backend (optional, für Speichern & Charts)
+**https://martin20231.github.io/test/**
 
-Für volle Funktion online:
-
-1. https://render.com → mit GitHub anmelden
-2. **New** → **Web Service** → Repo `test` auswählen
-3. Render erkennt `render.yaml` automatisch → **Deploy**
-4. Nach dem Deploy die URL kopieren (z.B. `https://einkaufs-tracker-api.onrender.com`)
-5. In `public/config.js` eintragen und auf `main` pushen
-
-```js
-window.APP_CONFIG = {
-  API_BASE: 'https://einkaufs-tracker-api.onrender.com/api',
-};
-```
-
-## Lokal sofort testen (alles funktioniert)
+## Lokal testen
 
 ```bash
 npm install

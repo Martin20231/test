@@ -12,15 +12,22 @@ permissions:
   contents: write
 
 jobs:
-  deploy:
+  sync-docs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
-          force_orphan: true
+      - name: Sync public/ to docs/
+        run: |
+          mkdir -p docs
+          cp public/index.html public/style.css public/app.js public/config.js docs/
+          touch docs/.nojekyll
+
+      - name: Commit and push docs/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          git diff --staged --quiet || git commit -m "Sync docs/ for GitHub Pages"
+          git push
