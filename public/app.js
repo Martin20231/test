@@ -10,6 +10,7 @@ function resolveApiBase() {
 }
 
 const API = resolveApiBase();
+const DEMO_MODE = !API;
 
 const state = {
   stores: [],
@@ -63,10 +64,9 @@ const els = {
 
 // ── API Helpers ─────────────────────────────────────────────
 async function api(path, options = {}) {
-  if (!API) {
-    throw new Error(
-      'Kein Backend konfiguriert. Trage die API-URL in public/config.js ein oder starte lokal mit npm start.'
-    );
+  if (DEMO_MODE) {
+    const { demoApi } = await import('./demoApi.js');
+    return demoApi(path, options);
   }
   const res = await fetch(`${API}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
@@ -657,6 +657,18 @@ function delay(ms) {
 }
 
 // ── Boot ────────────────────────────────────────────────────
+function initDemoBanner() {
+  if (!DEMO_MODE) return;
+  const banner = document.createElement('div');
+  banner.className = 'demo-banner';
+  banner.innerHTML = `
+    <span>📱 <strong>Demo-Modus</strong> – Daten werden lokal im Browser gespeichert.</span>
+    <span class="demo-banner-hint">Für echte REWE-Preise: Backend auf Render deployen.</span>
+  `;
+  document.querySelector('header')?.after(banner);
+}
+
 initNavigation();
 initUpload();
+initDemoBanner();
 loadInitialData();
