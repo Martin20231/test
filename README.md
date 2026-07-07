@@ -1,6 +1,6 @@
-# Einkaufs-Tracker Backend
+# Einkaufs-Tracker
 
-Backend für eine Einkaufs-Tracker-App mit **Node.js**, **Express** und **SQLite**.
+Fullstack Einkaufs-Tracker-App mit **Node.js**, **Express**, **SQLite** und einem modernen **Frontend** (Tailwind CSS, Chart.js).
 
 Speichert Kassenbons, zeigt Preisentwicklungen einzelner Produkte und vergleicht Preise zwischen verschiedenen Läden.
 
@@ -27,7 +27,24 @@ Für Entwicklung mit automatischem Neustart:
 npm run dev
 ```
 
-Der Server läuft standardmäßig auf `http://localhost:3000`.
+Der Server läuft standardmäßig auf `http://localhost:3000`. Das Frontend ist unter derselben URL erreichbar.
+
+## Frontend
+
+Single-Page-App mit drei Dashboards:
+
+| Ansicht | Beschreibung |
+|---------|--------------|
+| **Bon hochladen** | Drag-and-Drop für Kassenbon-Fotos, KI-Simulation, Speichern via API |
+| **Preis-Checker** | Produktsuche mit Chart.js-Liniendiagramm für Preisverlauf |
+| **Spar-Optimierer** | Übersicht: günstigster Laden pro Produkt (Lidl, Aldi, REWE) |
+
+```
+public/
+├── index.html
+├── style.css
+└── app.js
+```
 
 ## Datenbank
 
@@ -44,8 +61,8 @@ SQLite-Datei: `data/einkauf.db` (wird beim ersten Start automatisch angelegt).
 
 Beim ersten Start werden Beispieldaten angelegt:
 
-- **Läden:** Lidl, REWE
-- **Produkte:** Milch, Butter (Kategorie: Milchprodukte)
+- **Läden:** Lidl, Aldi, REWE
+- **Produkte:** Milch, Butter, Brot, Eier, Kaffee
 
 ## API-Endpunkte
 
@@ -53,6 +70,13 @@ Beim ersten Start werden Beispieldaten angelegt:
 
 ```bash
 curl http://localhost:3000/health
+```
+
+### Läden & Produkte
+
+```bash
+curl http://localhost:3000/api/stores
+curl http://localhost:3000/api/products
 ```
 
 ### Kassenbon speichern
@@ -99,6 +123,10 @@ Vergleicht für jedes Produkt die aktuellsten Preise in allen Läden und zeigt, 
 ├── server.js           # Express-Server und API-Routen
 ├── db/
 │   └── database.js     # Datenbank-Initialisierung und Verbindung
+├── public/
+│   ├── index.html      # Frontend SPA
+│   ├── style.css       # Custom Styles & Animationen
+│   └── app.js          # Frontend-Logik
 ├── data/
 │   └── einkauf.db      # SQLite-Datenbank (wird automatisch erstellt)
 └── package.json

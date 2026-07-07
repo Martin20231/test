@@ -54,11 +54,9 @@ export function initDatabase() {
 }
 
 function seedDatabase(database) {
-  const storeCount = database.prepare('SELECT COUNT(*) AS count FROM stores').get().count;
-  if (storeCount === 0) {
-    const insertStore = database.prepare('INSERT INTO stores (name) VALUES (?)');
-    insertStore.run('Lidl');
-    insertStore.run('REWE');
+  const insertStore = database.prepare('INSERT OR IGNORE INTO stores (name) VALUES (?)');
+  for (const name of ['Lidl', 'Aldi', 'REWE']) {
+    insertStore.run(name);
   }
 
   const productCount = database.prepare('SELECT COUNT(*) AS count FROM products').get().count;
@@ -66,7 +64,15 @@ function seedDatabase(database) {
     const insertProduct = database.prepare(
       'INSERT INTO products (name, category) VALUES (?, ?)'
     );
-    insertProduct.run('Milch', 'Milchprodukte');
-    insertProduct.run('Butter', 'Milchprodukte');
+    const products = [
+      ['Milch', 'Milchprodukte'],
+      ['Butter', 'Milchprodukte'],
+      ['Brot', 'Backwaren'],
+      ['Eier', 'Milchprodukte'],
+      ['Kaffee', 'Getränke'],
+    ];
+    for (const [name, category] of products) {
+      insertProduct.run(name, category);
+    }
   }
 }

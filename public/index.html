@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="de" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Einkaufs-Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: '#0a0f1a',
+            panel: '#111827',
+            neon: {
+              green: '#00ff9d',
+              blue: '#00d4ff',
+            },
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="h-full bg-surface text-slate-100 font-sans antialiased">
+  <div class="app-bg"></div>
+
+  <div class="relative z-10 min-h-full flex flex-col">
+    <!-- Header -->
+    <header class="border-b border-white/5 backdrop-blur-xl bg-panel/60 sticky top-0 z-50">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="logo-glow w-10 h-10 rounded-2xl flex items-center justify-center text-lg font-bold">€</div>
+          <div>
+            <h1 class="text-xl font-bold tracking-tight">Einkaufs-Tracker</h1>
+            <p class="text-xs text-slate-400">Smart Shopping Intelligence</p>
+          </div>
+        </div>
+        <nav class="flex gap-2 p-1 rounded-2xl bg-white/5 border border-white/5" role="tablist">
+          <button class="nav-tab active" data-view="upload" role="tab" aria-selected="true">
+            <span class="nav-icon">📸</span>
+            <span>Bon hochladen</span>
+          </button>
+          <button class="nav-tab" data-view="checker" role="tab" aria-selected="false">
+            <span class="nav-icon">📈</span>
+            <span>Preis-Checker</span>
+          </button>
+          <button class="nav-tab" data-view="optimizer" role="tab" aria-selected="false">
+            <span class="nav-icon">💰</span>
+            <span>Spar-Optimierer</span>
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+      <!-- Toast -->
+      <div id="toast" class="toast hidden" role="status"></div>
+
+      <!-- View 1: Bon hochladen -->
+      <section id="view-upload" class="view active space-y-8">
+        <div class="view-header">
+          <h2 class="view-title">Kassenbon scannen</h2>
+          <p class="view-subtitle">Lade ein Foto deines Kassenbons hoch und lass die KI Produkte &amp; Preise erkennen.</p>
+        </div>
+
+        <div class="grid lg:grid-cols-2 gap-8">
+          <!-- Drop Zone -->
+          <div class="space-y-6">
+            <div id="drop-zone" class="drop-zone">
+              <input type="file" id="file-input" accept="image/*" class="hidden" />
+              <div id="drop-placeholder" class="drop-placeholder">
+                <div class="drop-icon">⬆</div>
+                <p class="text-lg font-semibold">Foto hierher ziehen</p>
+                <p class="text-sm text-slate-400 mt-1">oder klicken zum Auswählen</p>
+                <p class="text-xs text-slate-500 mt-4">PNG, JPG · max. 10 MB</p>
+              </div>
+              <img id="preview-image" class="preview-image hidden" alt="Kassenbon Vorschau" />
+              <div id="scan-overlay" class="scan-overlay hidden">
+                <div class="scan-laser"></div>
+                <div class="scan-grid"></div>
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-4">
+              <div class="flex-1">
+                <label class="field-label" for="store-select">Laden</label>
+                <select id="store-select" class="field-input">
+                  <option value="">Laden wählen…</option>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <button id="btn-analyze" class="btn-primary w-full sm:w-auto" disabled>
+                  <span class="btn-glow"></span>
+                  KI-Auswertung starten
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Results -->
+          <div class="panel-card">
+            <div class="flex items-center justify-between mb-6">
+              <h3 class="text-lg font-semibold">Erkannte Produkte</h3>
+              <span id="analyze-status" class="status-badge idle">Bereit</span>
+            </div>
+
+            <div id="results-empty" class="empty-state">
+              <div class="empty-icon">🔍</div>
+              <p>Noch keine Auswertung</p>
+              <p class="text-sm text-slate-500">Lade einen Bon hoch und starte die KI-Analyse</p>
+            </div>
+
+            <div id="results-table-wrap" class="hidden">
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Produkt</th>
+                      <th>Laden</th>
+                      <th class="text-right">Preis</th>
+                    </tr>
+                  </thead>
+                  <tbody id="results-tbody"></tbody>
+                </table>
+              </div>
+              <div class="flex items-center justify-between mt-6 pt-6 border-t border-white/5">
+                <div>
+                  <p class="text-sm text-slate-400">Gesamtsumme</p>
+                  <p id="results-total" class="text-2xl font-bold text-neon-green">0,00 €</p>
+                </div>
+                <button id="btn-save" class="btn-primary">
+                  <span class="btn-glow"></span>
+                  Speichern
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 2: Preis-Checker -->
+      <section id="view-checker" class="view hidden space-y-8">
+        <div class="view-header">
+          <h2 class="view-title">Preis-Checker</h2>
+          <p class="view-subtitle">Verfolge die Preisentwicklung deiner Lieblingsprodukte – dein persönlicher Inflations-Check.</p>
+        </div>
+
+        <div class="panel-card">
+          <div class="relative max-w-xl">
+            <label class="field-label" for="product-search">Produkt suchen</label>
+            <div class="search-wrap">
+              <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                id="product-search"
+                class="field-input search-input"
+                placeholder="z.B. Milch, Butter, Kaffee…"
+                autocomplete="off"
+              />
+              <div id="search-suggestions" class="search-suggestions hidden"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="chart-empty" class="panel-card empty-state">
+          <div class="empty-icon">📊</div>
+          <p>Wähle ein Produkt aus</p>
+          <p class="text-sm text-slate-500">Das Preisverlaufs-Diagramm erscheint hier</p>
+        </div>
+
+        <div id="chart-panel" class="panel-card hidden">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+            <div>
+              <h3 id="chart-product-name" class="text-xl font-bold"></h3>
+              <p id="chart-meta" class="text-sm text-slate-400 mt-1"></p>
+            </div>
+            <div id="chart-stats" class="flex gap-4"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="price-chart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- View 3: Spar-Optimierer -->
+      <section id="view-optimizer" class="view hidden space-y-8">
+        <div class="view-header">
+          <h2 class="view-title">Spar-Optimierer</h2>
+          <p class="view-subtitle">Finde heraus, in welchem Laden deine Produkte aktuell am günstigsten sind.</p>
+        </div>
+
+        <div id="optimizer-loading" class="panel-card empty-state">
+          <div class="spinner"></div>
+          <p>Lade Preisvergleich…</p>
+        </div>
+
+        <div id="optimizer-empty" class="panel-card empty-state hidden">
+          <div class="empty-icon">🛒</div>
+          <p>Keine Daten vorhanden</p>
+          <p class="text-sm text-slate-500">Speichere zuerst einige Kassenbons</p>
+        </div>
+
+        <div id="optimizer-content" class="hidden space-y-6">
+          <div id="optimizer-summary" class="grid sm:grid-cols-3 gap-4"></div>
+          <div id="optimizer-cards" class="grid md:grid-cols-2 gap-6"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-white/5 py-6 text-center text-xs text-slate-500">
+      Einkaufs-Tracker · Powered by Express &amp; SQLite
+    </footer>
+  </div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

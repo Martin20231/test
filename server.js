@@ -1,15 +1,39 @@
 import express from 'express';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { getDb, initDatabase } from './db/database.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT ?? 3000;
 
 initDatabase();
 
 app.use(express.json());
+app.use(express.static(join(__dirname, 'public')));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
+});
+
+app.get('/api/stores', (_req, res, next) => {
+  try {
+    const stores = getDb().prepare('SELECT id, name FROM stores ORDER BY name').all();
+    res.json({ stores });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/products', (_req, res, next) => {
+  try {
+    const products = getDb()
+      .prepare('SELECT id, name, category FROM products ORDER BY name')
+      .all();
+    res.json({ products });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post('/api/receipts', (req, res, next) => {
