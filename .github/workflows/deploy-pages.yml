@@ -21,7 +21,7 @@ jobs:
       - name: Prepare static site
         run: |
           mkdir -p site
-          cp public/index.html public/style.css public/app.js public/config.js site/
+          cp public/index.html public/style.css public/app.js public/config.js public/demoApi.js site/
           touch site/.nojekyll
 
       - name: Deploy to gh-pages branch
