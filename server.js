@@ -2,6 +2,7 @@ import express from 'express';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { getDb, initDatabase } from './db/database.js';
+import { lookupPrices } from './services/priceLookup.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -176,6 +177,21 @@ app.get('/api/products/history/:id', (req, res, next) => {
       product_name: product.name,
       history,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/prices/lookup', async (req, res, next) => {
+  try {
+    const query = req.query.q;
+    if (!query || !String(query).trim()) {
+      return res.status(400).json({ error: 'Query-Parameter q ist erforderlich.' });
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 8, 20);
+    const result = await lookupPrices(getDb(), String(query), { limit });
+    res.json(result);
   } catch (error) {
     next(error);
   }

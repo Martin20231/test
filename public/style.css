@@ -457,6 +457,57 @@
 
 .stat-pill.negative .stat-value { color: #f87171; }
 
+/* ── Internet Price Lookup ───────────────────────────────── */
+.internet-badge {
+  display: inline-flex;
+  padding: 0.35rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(0, 212, 255, 0.12);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  color: #00d4ff;
+}
+
+.comparison-card {
+  padding: 1rem 1.25rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.comparison-card-title {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.comparison-card-prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.local-price-tag,
+.internet-price-tag {
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 255, 157, 0.1);
+  color: #00ff9d;
+}
+
+.internet-price-tag {
+  background: rgba(0, 212, 255, 0.1);
+  color: #00d4ff;
+}
+
+.comparison-verdict {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
 /* ── Optimizer Cards ────────────────────────────────────── */
 .summary-card {
   padding: 1.25rem;
