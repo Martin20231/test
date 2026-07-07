@@ -149,13 +149,15 @@ async function loadInitialData() {
       api('/stores'),
       api('/products'),
     ]);
-    state.stores = storesRes.stores;
-    state.products = productsRes.products;
+    state.stores = storesRes.stores?.length ? storesRes.stores : FALLBACK_STORES;
+    state.products = productsRes.products ?? [];
     populateStoreSelect();
     await loadCompareCache();
-    initCheckerBrowser();
   } catch (err) {
+    state.stores = FALLBACK_STORES;
     showToast(`Daten konnten nicht geladen werden: ${err.message}`, 'error');
+  } finally {
+    initCheckerBrowser();
   }
 }
 
@@ -377,6 +379,15 @@ function resetUpload() {
 
 // ── Price Checker ───────────────────────────────────────────
 
+const FALLBACK_STORES = [
+  { id: 1, name: 'Lidl' },
+  { id: 2, name: 'Aldi' },
+  { id: 3, name: 'REWE' },
+  { id: 4, name: 'Netto' },
+  { id: 5, name: 'EDEKA' },
+  { id: 6, name: 'ROSSMANN' },
+];
+
 const CATEGORY_ICONS = {
   'Milchprodukte': '🥛',
   Backwaren: '🍞',
@@ -403,13 +414,22 @@ async function loadCompareCache() {
 }
 
 function initCheckerBrowser() {
-  if (!state.products.length) return;
-  renderCheckerStoreChips();
+  if (!els.checkerStoreChips) return;
+
+  if (state.checkerStoreId == null) {
+    state.checkerStoreId = 'all';
+  }
+
+  const stores = state.stores?.length ? state.stores : FALLBACK_STORES;
+  if (!state.stores?.length) state.stores = stores;
+
+  renderCheckerStoreChips(stores);
   renderCheckerCategoryChips();
   renderProductGrid();
 }
 
-function renderCheckerStoreChips() {
+function renderCheckerStoreChips(stores = state.stores) {
+  if (!els.checkerStoreChips) return;
   els.checkerStoreChips.innerHTML = '';
 
   const allBtn = document.createElement('button');
@@ -418,19 +438,19 @@ function renderCheckerStoreChips() {
   allBtn.innerHTML = '<span class="store-dot other"></span> Alle';
   allBtn.addEventListener('click', () => {
     state.checkerStoreId = 'all';
-    renderCheckerStoreChips();
+    renderCheckerStoreChips(stores);
     renderProductGrid();
   });
   els.checkerStoreChips.appendChild(allBtn);
 
-  for (const store of state.stores) {
+  for (const store of stores) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `store-chip ${state.checkerStoreId === store.id ? 'active' : ''}`;
     btn.innerHTML = `<span class="store-dot ${storeDotClass(store.name)}"></span> ${store.name}`;
     btn.addEventListener('click', () => {
       state.checkerStoreId = store.id;
-      renderCheckerStoreChips();
+      renderCheckerStoreChips(stores);
       renderProductGrid();
     });
     els.checkerStoreChips.appendChild(btn);
@@ -438,9 +458,10 @@ function renderCheckerStoreChips() {
 }
 
 function renderCheckerCategoryChips() {
-  const categories = [...new Set(state.products.map((p) => p.category))].sort((a, b) =>
-    a.localeCompare(b, 'de')
-  );
+  if (!els.checkerCategoryChips) return;
+  const categories = state.products.length
+    ? [...new Set(state.products.map((p) => p.category))].sort((a, b) => a.localeCompare(b, 'de'))
+    : [];
 
   els.checkerCategoryChips.innerHTML = '';
 
@@ -489,11 +510,14 @@ function getStorePriceForProduct(productId) {
 }
 
 function renderProductGrid() {
-  const needsStore = state.checkerStoreId == null;
-  els.checkerHint.classList.toggle('hidden', !needsStore);
-  els.productGrid.classList.toggle('hidden', needsStore);
+  if (!els.productGrid) return;
 
-  if (needsStore) {
+  const hasProducts = state.products.length > 0;
+  els.checkerHint.classList.toggle('hidden', hasProducts);
+  els.productGrid.classList.toggle('hidden', !hasProducts);
+
+  if (!hasProducts) {
+    els.checkerHint.textContent = 'Produkte werden geladen…';
     els.productGridCount.textContent = '';
     els.productGrid.innerHTML = '';
     return;

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Einkaufs-Tracker</title>
-  <script src="config.js"></script>
+  <script src="config.js?v=6"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -29,7 +29,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=6" />
 </head>
 <body class="h-full bg-surface text-slate-100 font-sans antialiased">
   <div class="app-bg"></div>
@@ -157,14 +157,16 @@
 
         <div class="panel-card checker-browser">
           <p class="field-label">Markt wählen</p>
-          <div id="checker-store-chips" class="store-chips" role="tablist"></div>
+          <div id="checker-store-chips" class="store-chips" role="tablist">
+            <p class="checker-loading">Lädt Märkte…</p>
+          </div>
 
           <p class="field-label mt-6">Kategorie</p>
           <div id="checker-category-chips" class="category-chips" role="tablist"></div>
 
           <p id="product-grid-count" class="product-grid-count"></p>
-          <div id="product-grid" class="product-grid"></div>
-          <p id="checker-hint" class="checker-hint">Tippe einen Markt, dann ein Produkt.</p>
+          <div id="product-grid" class="product-grid hidden"></div>
+          <p id="checker-hint" class="checker-hint hidden">Produkte werden geladen…</p>
         </div>
 
         <div id="chart-empty" class="panel-card empty-state">
@@ -248,6 +250,6 @@
     </footer>
   </div>
 
-  <script src="app.js" type="module"></script>
+  <script src="app.js?v=6" type="module"></script>
 </body>
 </html>

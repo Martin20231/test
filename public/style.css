@@ -479,15 +479,23 @@
   gap: 0.5rem;
 }
 
+.checker-loading {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0;
+  width: 100%;
+}
+
 .store-chip,
 .category-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.625rem 1rem;
+  padding: 0.75rem 1.125rem;
+  min-height: 2.75rem;
   border-radius: 9999px;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 0.9375rem;
+  font-weight: 600;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
   color: #cbd5e1;

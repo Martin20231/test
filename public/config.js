@@ -5,3 +5,4 @@
 window.APP_CONFIG = {
   API_BASE: '',
 };
+window.APP_VERSION = '6';
