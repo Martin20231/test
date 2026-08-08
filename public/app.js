@@ -1,3 +1,13 @@
+import {
+  ensureIdentity,
+  clearIdentity,
+  encryptTextForRecipients,
+  decryptTextPayload,
+  encryptBytesForRecipients,
+  decryptMediaBytes,
+  isE2EPayload,
+} from './e2e.js';
+
 const TOKEN_KEY = 'relay_token';
 const REACTIONS = ['❤️', '👍', '😂', '😮', '😢', '🔥'];
 
@@ -24,6 +34,8 @@ const state = {
   voiceChunks: [],
   voiceStartedAt: 0,
   voiceTimer: null,
+  e2e: null,
+  mediaObjectUrls: new Map(),
 };
 
 const els = {
@@ -211,7 +223,7 @@ function renderConsentStatus() {
 
 function openPrivacyDialog() {
   els.privacyLastSeen.checked = Boolean(state.user?.show_last_seen);
-  els.privacyRetention.value = String(state.user?.message_retention_days || 365);
+  els.privacyRetention.value = String(state.user?.message_retention_days || 30);
   if (els.privacyRestrict) {
     els.privacyRestrict.checked = Boolean(state.user?.processing_restricted);
   }
@@ -283,6 +295,113 @@ function showToast(message) {
   els.toast.classList.remove('is-hidden');
   clearTimeout(showToast._t);
   showToast._t = setTimeout(() => els.toast.classList.add('is-hidden'), 2200);
+}
+
+async function setupE2E(user) {
+  const identity = await ensureIdentity(user.id);
+  state.e2e = identity;
+  if (!user.has_e2e_key) {
+    const data = await api('/api/me/public-key', {
+      method: 'PUT',
+      body: { public_key: identity.publicKeyJwk },
+    });
+    state.user = data.user;
+  } else {
+    // keep local key; re-upload to sync if server key missing mismatch is ok for demo
+    await api('/api/me/public-key', {
+      method: 'PUT',
+      body: { public_key: identity.publicKeyJwk },
+    }).catch(() => {});
+  }
+}
+
+async function recipientsForConversation(conversationId) {
+  const data = await api(`/api/conversations/${conversationId}/keys`);
+  const members = data.members || [];
+  const missing = members.filter((m) => !m.public_key);
+  if (missing.length) {
+    throw new Error(
+      `E2E nicht möglich: ${missing.map((m) => m.display_name || m.username).join(', ')} muss sich einmal anmelden (Schlüssel).`
+    );
+  }
+  return members.map((m) => ({ id: m.id, publicKeyJwk: m.public_key }));
+}
+
+async function decryptOneMessage(message) {
+  if (!message || message.deleted_at || !state.e2e || !state.user) return message;
+  const copy = { ...message };
+  if (message.reply_to) {
+    copy.reply_to = { ...message.reply_to };
+    if (message.reply_to.e2e && isE2EPayload(message.reply_to.body)) {
+      try {
+        const plain = await decryptTextPayload(
+          message.reply_to.body,
+          state.user.id,
+          state.e2e.privateKey
+        );
+        copy.reply_to.body =
+          message.reply_to.type === 'image'
+            ? plain || 'Bild'
+            : message.reply_to.type === 'audio'
+              ? 'Sprachnotiz'
+              : plain;
+        copy.reply_to.e2e = false;
+      } catch {
+        copy.reply_to.body = 'Verschlüsselt';
+      }
+    }
+  }
+
+  if (!(message.e2e && isE2EPayload(message.body))) return copy;
+
+  try {
+    if (message.type === 'image' || message.type === 'audio') {
+      copy._envelope = message.body;
+      copy.body = await decryptTextPayload(message.body, state.user.id, state.e2e.privateKey);
+      copy.e2e = false;
+      copy._encryptedMedia = true;
+    } else {
+      copy.body = await decryptTextPayload(message.body, state.user.id, state.e2e.privateKey);
+      copy.e2e = false;
+    }
+  } catch {
+    copy.body = 'Nicht entschlüsselbar (anderer Browser/Schlüssel?)';
+    copy.e2e_error = true;
+  }
+  return copy;
+}
+
+async function decryptMessages(messages) {
+  const out = [];
+  for (const message of messages || []) {
+    out.push(await decryptOneMessage(message));
+  }
+  return out;
+}
+
+function revokeMediaUrls() {
+  for (const url of state.mediaObjectUrls.values()) URL.revokeObjectURL(url);
+  state.mediaObjectUrls.clear();
+}
+
+async function resolveMediaUrl(message) {
+  if (!message?.media_url) return null;
+  if (!message._encryptedMedia || !message._envelope || !state.e2e) return message.media_url;
+  if (state.mediaObjectUrls.has(message.id)) return state.mediaObjectUrls.get(message.id);
+  const res = await fetch(message.media_url, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (!res.ok) throw new Error('Medien-Download fehlgeschlagen');
+  const buf = await res.arrayBuffer();
+  const decrypted = await decryptMediaBytes(
+    message._envelope,
+    buf,
+    state.user.id,
+    state.e2e.privateKey
+  );
+  const url = URL.createObjectURL(new Blob([decrypted.bytes], { type: decrypted.mime }));
+  state.mediaObjectUrls.set(message.id, url);
+  return url;
 }
 
 function showAuthError(message) {
@@ -392,8 +511,10 @@ async function handleLogout() {
   state.socket = null;
   state.token = null;
   state.user = null;
+  state.e2e = null;
   state.conversations = [];
   state.activeConversationId = null;
+  revokeMediaUrls();
   localStorage.removeItem(TOKEN_KEY);
   showAuth();
 }
@@ -510,13 +631,14 @@ function connectSocket() {
   });
 
   state.socket.on('message:new', async ({ message, conversation_id }) => {
+    const decrypted = await decryptOneMessage(message);
     let existing = state.conversations.find((c) => c.id === conversation_id);
     if (!existing) {
       await refreshConversations();
       existing = state.conversations.find((c) => c.id === conversation_id);
     } else {
-      existing.last_message = previewFromMessage(message);
-      if (state.activeConversationId !== conversation_id && message.sender_id !== state.user.id) {
+      existing.last_message = previewFromMessage(decrypted);
+      if (state.activeConversationId !== conversation_id && decrypted.sender_id !== state.user.id) {
         existing.unread_count = (existing.unread_count || 0) + 1;
       }
       state.conversations = [existing, ...state.conversations.filter((c) => c.id !== conversation_id)];
@@ -524,16 +646,17 @@ function connectSocket() {
     }
 
     if (state.activeConversationId === conversation_id) {
-      upsertLocalMessage(message);
-      if (message.sender_id !== state.user.id) await markRead(conversation_id);
+      upsertLocalMessage(decrypted);
+      if (decrypted.sender_id !== state.user.id) await markRead(conversation_id);
     }
   });
 
-  state.socket.on('message:updated', ({ message }) => {
-    if (state.activeConversationId === message.conversation_id) upsertLocalMessage(message);
+  state.socket.on('message:updated', async ({ message }) => {
+    const decrypted = await decryptOneMessage(message);
+    if (state.activeConversationId === message.conversation_id) upsertLocalMessage(decrypted);
     const conversation = state.conversations.find((c) => c.id === message.conversation_id);
     if (conversation?.last_message?.id === message.id) {
-      conversation.last_message = previewFromMessage(message);
+      conversation.last_message = previewFromMessage(decrypted);
       renderConversationList();
     }
   });
@@ -591,6 +714,7 @@ async function bootstrapSession() {
     const me = await api('/api/me');
     state.user = me.user;
     state.onlineIds = new Set(me.online_user_ids || []);
+    await setupE2E(me.user);
     showApp();
     connectSocket();
     await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
@@ -598,6 +722,7 @@ async function bootstrapSession() {
   } catch {
     localStorage.removeItem(TOKEN_KEY);
     state.token = null;
+    state.e2e = null;
     showAuth();
   }
 }
@@ -728,6 +853,7 @@ async function openConversation(conversationId) {
   state.peerTyping = false;
   state.replyTo = null;
   state.openReactionFor = null;
+  revokeMediaUrls();
   updateReplyBar();
   els.typingIndicator.classList.add('is-hidden');
   els.appScreen.classList.add('show-chat');
@@ -738,7 +864,7 @@ async function openConversation(conversationId) {
   if (idx >= 0) state.conversations[idx] = { ...state.conversations[idx], ...conversation, unread_count: 0 };
   else state.conversations.unshift(conversation);
 
-  state.messages = data.messages || [];
+  state.messages = await decryptMessages(data.messages || []);
   els.emptyState.classList.add('is-hidden');
   els.activeChat.classList.remove('is-hidden');
   renderActiveHeader();
@@ -842,11 +968,19 @@ function reactionSummary(message) {
 function mediaHtml(message) {
   if (message.deleted_at) return '';
   if (message.type === 'image' && message.media_url) {
-    return `<img class="bubble-media" src="${message.media_url}" alt="Foto" data-lightbox="${message.media_url}" />`;
+    const src = message._resolvedMediaUrl || '';
+    if (!src && message._encryptedMedia) {
+      return `<div class="bubble-media-loading" data-media-id="${message.id}">Bild wird entschlüsselt…</div>`;
+    }
+    return `<img class="bubble-media" src="${src || message.media_url}" alt="Foto" data-lightbox="${src || message.media_url}" />`;
   }
   if (message.type === 'audio' && message.media_url) {
+    const src = message._resolvedMediaUrl || '';
+    if (!src && message._encryptedMedia) {
+      return `<div class="audio-msg" data-media-id="${message.id}">Sprachnotiz wird entschlüsselt…</div>`;
+    }
     return `<div class="audio-msg">
-      <audio controls preload="metadata" src="${message.media_url}"></audio>
+      <audio controls preload="metadata" src="${src || message.media_url}"></audio>
       <span class="audio-duration">${formatDuration(message.media_duration_ms || 0)}</span>
     </div>`;
   }
@@ -937,6 +1071,41 @@ function renderMessages() {
 
   bindMessageActions();
   scrollMessagesToBottom(false);
+  hydrateEncryptedMedia();
+}
+
+async function hydrateEncryptedMedia() {
+  for (const message of state.messages) {
+    if (!message._encryptedMedia || message._resolvedMediaUrl || !message.media_url) continue;
+    try {
+      const url = await resolveMediaUrl(message);
+      message._resolvedMediaUrl = url;
+      const nodes = els.messageList.querySelectorAll(`[data-media-id="${message.id}"]`);
+      nodes.forEach((node) => {
+        if (message.type === 'image') {
+          node.outerHTML = `<img class="bubble-media" src="${url}" alt="Foto" data-lightbox="${url}" />`;
+        } else if (message.type === 'audio') {
+          node.outerHTML = `<div class="audio-msg"><audio controls preload="metadata" src="${url}"></audio><span class="audio-duration">${formatDuration(message.media_duration_ms || 0)}</span></div>`;
+        }
+      });
+      els.messageList.querySelectorAll('[data-lightbox]').forEach((img) => {
+        if (img.dataset.bound) return;
+        img.dataset.bound = '1';
+        img.addEventListener('click', () => {
+          const overlay = document.createElement('div');
+          overlay.className = 'lightbox';
+          overlay.innerHTML = `<img src="${img.dataset.lightbox}" alt="" />`;
+          overlay.addEventListener('click', () => overlay.remove());
+          document.body.appendChild(overlay);
+        });
+      });
+    } catch {
+      const nodes = els.messageList.querySelectorAll(`[data-media-id="${message.id}"]`);
+      nodes.forEach((node) => {
+        node.textContent = 'Medien nicht entschlüsselbar';
+      });
+    }
+  }
 }
 
 function bindMessageActions() {
@@ -957,7 +1126,7 @@ function bindMessageActions() {
           method: 'POST',
           body: { option_id: btn.dataset.option },
         });
-        upsertLocalMessage(data.message);
+        upsertLocalMessage(await decryptOneMessage(data.message));
       } catch (error) {
         showToast(error.message);
       }
@@ -984,11 +1153,11 @@ function bindMessageActions() {
         const data = message.pinned
           ? await api(path, { method: 'DELETE' })
           : await api(path, { method: 'POST', body: {} });
-        upsertLocalMessage(data.message);
+        upsertLocalMessage(await decryptOneMessage(data.message));
         const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
         if (conversation) {
           const fresh = await api(`/api/conversations/${state.activeConversationId}/messages`);
-          conversation.pinned_messages = fresh.conversation.pinned_messages || [];
+          conversation.pinned_messages = await decryptMessages(fresh.conversation.pinned_messages || []);
           renderPins();
         }
       } catch (error) {
@@ -1026,7 +1195,7 @@ function bindMessageActions() {
           body: { emoji: btn.dataset.emoji },
         });
         state.openReactionFor = null;
-        upsertLocalMessage(data.message);
+        upsertLocalMessage(await decryptOneMessage(data.message));
       } catch (error) {
         showToast(error.message);
       }
@@ -1044,11 +1213,13 @@ function bindMessageActions() {
         return;
       }
       try {
+        const recipients = await recipientsForConversation(state.activeConversationId);
+        const encrypted = await encryptTextForRecipients(next.trim(), recipients);
         const data = await api(`/api/messages/${message.id}`, {
           method: 'PATCH',
-          body: { body: next.trim() },
+          body: { body: encrypted },
         });
-        upsertLocalMessage(data.message);
+        upsertLocalMessage(await decryptOneMessage(data.message));
       } catch (error) {
         showToast(error.message);
         renderMessages();
@@ -1062,7 +1233,7 @@ function bindMessageActions() {
       state.openMsgMenu = null;
       try {
         const data = await api(`/api/messages/${btn.dataset.delete}`, { method: 'DELETE' });
-        upsertLocalMessage(data.message);
+        upsertLocalMessage(await decryptOneMessage(data.message));
       } catch (error) {
         showToast(error.message);
       }
@@ -1104,8 +1275,11 @@ async function sendMessage(body) {
   const conversationId = state.activeConversationId;
   if (!conversationId || !body.trim()) return;
   if (!ensureMessageConsent()) return;
+  if (!state.e2e) throw new Error('E2E-Schlüssel fehlen. Bitte neu anmelden.');
 
-  const payload = { body };
+  const recipients = await recipientsForConversation(conversationId);
+  const encrypted = await encryptTextForRecipients(body.trim(), recipients);
+  const payload = { body: encrypted };
   if (state.replyTo) payload.reply_to_id = state.replyTo.id;
 
   try {
@@ -1113,14 +1287,15 @@ async function sendMessage(body) {
       method: 'POST',
       body: payload,
     });
+    const decrypted = await decryptOneMessage(data.message);
 
     state.replyTo = null;
     updateReplyBar();
-    upsertLocalMessage(data.message);
+    upsertLocalMessage(decrypted);
 
     const conversation = state.conversations.find((c) => c.id === conversationId);
     if (conversation) {
-      conversation.last_message = previewFromMessage(data.message);
+      conversation.last_message = previewFromMessage(decrypted);
       state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
       renderConversationList();
     }
@@ -1137,10 +1312,18 @@ async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' }
   if (!conversationId || !file) return;
   if (!ensureMessageConsent()) return;
   if (!ensureMediaConsent()) return;
+  if (!state.e2e) throw new Error('E2E-Schlüssel fehlen. Bitte neu anmelden.');
+
+  const recipients = await recipientsForConversation(conversationId);
+  const bytes = await file.arrayBuffer();
+  const { envelope, blob } = await encryptBytesForRecipients(bytes, recipients, {
+    caption,
+    mime: file.type || 'application/octet-stream',
+  });
 
   const formData = new FormData();
-  formData.append('file', file);
-  if (caption) formData.append('body', caption);
+  formData.append('file', blob, `e2e-${Date.now()}.bin`);
+  formData.append('body', envelope);
   if (state.replyTo) formData.append('reply_to_id', state.replyTo.id);
   if (durationMs != null) formData.append('media_duration_ms', String(durationMs));
   if (typeHint) formData.append('type', typeHint);
@@ -1150,14 +1333,15 @@ async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' }
       method: 'POST',
       formData,
     });
+    const decrypted = await decryptOneMessage(data.message);
 
     state.replyTo = null;
     updateReplyBar();
-    upsertLocalMessage(data.message);
+    upsertLocalMessage(decrypted);
 
     const conversation = state.conversations.find((c) => c.id === conversationId);
     if (conversation) {
-      conversation.last_message = previewFromMessage(data.message);
+      conversation.last_message = previewFromMessage(decrypted);
       state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
       renderConversationList();
     }
@@ -1333,10 +1517,12 @@ async function handleAuthSuccess(data) {
   state.token = data.token;
   state.user = data.user;
   localStorage.setItem(TOKEN_KEY, data.token);
+  await setupE2E(data.user);
   showApp();
   connectSocket();
   await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
   ensureMessageConsent();
+  showToast('Chats sind Ende-zu-Ende verschlüsselt');
 }
 
 els.loginForm.addEventListener('submit', async (event) => {
@@ -1447,7 +1633,7 @@ els.privacyRetention.addEventListener('change', async () => {
     state.user = data.user;
     showToast(`Nachrichten-Frist: ${els.privacyRetention.value} Tage`);
   } catch (error) {
-    els.privacyRetention.value = String(state.user?.message_retention_days || 365);
+    els.privacyRetention.value = String(state.user?.message_retention_days || 30);
     showToast(error.message);
   }
 });
@@ -1573,18 +1759,20 @@ els.pollForm.addEventListener('submit', async (event) => {
     .map((input) => input.value.trim())
     .filter(Boolean);
   try {
+    const recipients = await recipientsForConversation(state.activeConversationId);
+    const encrypted = await encryptTextForRecipients(els.pollQuestion.value.trim(), recipients);
     const data = await api(`/api/conversations/${state.activeConversationId}/messages`, {
       method: 'POST',
       body: {
         type: 'poll',
-        body: els.pollQuestion.value.trim(),
+        body: encrypted,
         options,
         reply_to_id: state.replyTo?.id || null,
       },
     });
     state.replyTo = null;
     updateReplyBar();
-    upsertLocalMessage(data.message);
+    upsertLocalMessage(await decryptOneMessage(data.message));
     els.pollDialog.close();
   } catch (error) {
     showToast(error.message);

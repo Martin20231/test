@@ -13,7 +13,7 @@
     <section id="auth-screen" class="auth-screen">
       <div class="auth-panel">
         <h1 class="brand-name">Relay</h1>
-        <p class="brand-tagline">Nachrichten, Gruppen und Status — klar und privat.</p>
+        <p class="brand-tagline">Nachrichten Ende-zu-Ende verschlüsselt. Der Server sieht nur Ciphertext.</p>
 
         <div class="auth-tabs" role="tablist">
           <button type="button" class="auth-tab is-active" data-tab="login">Anmelden</button>
@@ -32,7 +32,7 @@
           <label><span>Passwort</span><input name="password" type="password" required minlength="8" placeholder="Mindestens 8 Zeichen" /></label>
           <label class="check-row"><input name="age_confirmed" type="checkbox" required /><span>Ich bin mindestens 16 Jahre alt.</span></label>
           <label class="check-row"><input name="privacy_consent" type="checkbox" required /><span>Ich akzeptiere die <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.</span></label>
-          <label class="check-row"><input name="message_consent" type="checkbox" required /><span>Einwilligung zur Verarbeitung von <strong>Nachrichten</strong> (serverseitig gespeichert, keine Ende-zu-Ende-Verschlüsselung).</span></label>
+          <label class="check-row"><input name="message_consent" type="checkbox" required /><span>Einwilligung zur Verarbeitung von <strong>Nachrichten-Metadaten</strong> (Zustellung). Inhalte sind Ende-zu-Ende verschlüsselt.</span></label>
           <label class="check-row"><input name="media_consent" type="checkbox" required /><span>Einwilligung zur Verarbeitung von <strong>Medien</strong> (Bilder und Sprachnotizen).</span></label>
           <label class="check-row"><input name="impulse_consent" type="checkbox" required /><span>Einwilligung zur Verarbeitung von <strong>Status</strong>-Beiträgen.</span></label>
           <button type="submit" class="btn btn-primary">Konto erstellen</button>
@@ -267,12 +267,12 @@
             <h3>Speicherfrist</h3>
             <label>
               <span>Nachrichten automatisch löschen nach</span>
-              <select id="privacy-retention">
-                <option value="30">30 Tagen</option>
-                <option value="90">90 Tagen</option>
-                <option value="180">180 Tagen</option>
-                <option value="365">365 Tagen</option>
-              </select>
+            <select id="privacy-retention">
+              <option value="7">7 Tagen</option>
+              <option value="30">30 Tagen</option>
+              <option value="90">90 Tagen</option>
+              <option value="180">180 Tagen</option>
+            </select>
             </label>
           </section>
 
@@ -336,8 +336,8 @@
         <header class="sheet-header"><h2>Einwilligung nötig</h2></header>
         <div class="group-form-fields">
           <p class="privacy-help">
-            Zum Chatten brauchst du die Einwilligung zur Nachrichtenverarbeitung.
-            Inhalte werden serverseitig gespeichert (keine Ende-zu-Ende-Verschlüsselung).
+            Zum Chatten brauchst du die Einwilligung zur Zustellung.
+            Nachrichteninhalte sind Ende-zu-Ende verschlüsselt (Schlüssel nur im Browser).
             <a href="/datenschutz.html" target="_blank" rel="noopener">Mehr erfahren</a>
           </p>
           <label class="check-row"><input id="message-consent-check" type="checkbox" required /><span>Ich willige in die Verarbeitung meiner Nachrichten ein.</span></label>

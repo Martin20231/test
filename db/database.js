@@ -40,8 +40,9 @@ export function initDatabase() {
       message_consent_at    TEXT,
       media_consent_at      TEXT,
       impulse_consent_at    TEXT,
-      message_retention_days INTEGER NOT NULL DEFAULT 365,
+      message_retention_days INTEGER NOT NULL DEFAULT 30,
       processing_restricted INTEGER NOT NULL DEFAULT 0,
+      public_key            TEXT,
       created_at            TEXT NOT NULL
     );
 
@@ -190,10 +191,13 @@ function migrateSchema(database) {
     database.exec('ALTER TABLE users ADD COLUMN impulse_consent_at TEXT');
   }
   if (!userCols.includes('message_retention_days')) {
-    database.exec('ALTER TABLE users ADD COLUMN message_retention_days INTEGER NOT NULL DEFAULT 365');
+    database.exec('ALTER TABLE users ADD COLUMN message_retention_days INTEGER NOT NULL DEFAULT 30');
   }
   if (!userCols.includes('processing_restricted')) {
     database.exec('ALTER TABLE users ADD COLUMN processing_restricted INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!userCols.includes('public_key')) {
+    database.exec('ALTER TABLE users ADD COLUMN public_key TEXT');
   }
 
   const consentCols = tableColumns(database, 'privacy_consents');
@@ -282,13 +286,30 @@ const AVATAR_COLORS = [
   '#386641',
 ];
 
-const PRIVACY_POLICY_VERSION = '2026-08-08.3';
-const DEFAULT_MESSAGE_RETENTION_DAYS = 365;
+const PRIVACY_POLICY_VERSION = '2026-08-08.4';
+const DEFAULT_MESSAGE_RETENTION_DAYS = 30;
 const SESSION_DAYS = 30;
-const ALLOWED_RETENTION_DAYS = new Set([30, 90, 180, 365]);
+const ALLOWED_RETENTION_DAYS = new Set([7, 30, 90, 180]);
+const E2E_PREFIX = 'e2e:v1:';
 const CONSENT_SCOPES = new Set(['policy', 'messages', 'media', 'impulses']);
 const ALLOWED_REACTIONS = new Set(['👍', '❤️', '😂', '😮', '😢', '🔥', '👏']);
 const REVOCABLE_SCOPES = new Set(['messages', 'media', 'impulses', 'all']);
+
+function isE2EBody(value) {
+  return String(value || '').startsWith(E2E_PREFIX);
+}
+
+function storeMessageBody(plainOrCipher) {
+  const text = String(plainOrCipher || '');
+  if (isE2EBody(text)) return text;
+  return encryptText(text);
+}
+
+function revealStoredBody(stored) {
+  const text = String(stored || '');
+  if (isE2EBody(text)) return text;
+  return decryptText(text);
+}
 
 export function getPrivacyPolicyVersion() {
   return PRIVACY_POLICY_VERSION;
@@ -299,16 +320,16 @@ export function getMessagePrivacyInfo() {
     legal_basis_contract: 'Art. 6 Abs. 1 lit. b DSGVO',
     legal_basis_consent: 'Art. 6 Abs. 1 lit. a DSGVO',
     purpose:
-      'Übermittlung und berechtigtes Speichern von Chat-Nachrichten zur Bereitstellung des Messengers',
+      'Zustellung von Chat-Nachrichten; Inhalte möglichst nur als Ciphertext auf dem Server',
     storage_limitation: 'Art. 5 Abs. 1 lit. e DSGVO',
-    integrity_confidentiality: 'Art. 32 DSGVO (Passwort-Hashing, Session-Timeout, Verschlüsselung at rest)',
+    integrity_confidentiality: 'Art. 32 DSGVO (E2E clientseitig, Passwort-Hashing, Session-Timeout)',
     default_retention_days: DEFAULT_MESSAGE_RETENTION_DAYS,
     allowed_retention_days: [...ALLOWED_RETENTION_DAYS],
-    e2e_encryption: false,
+    e2e_encryption: true,
     encryption_at_rest: true,
     privacy_by_default: true,
     note:
-      'Nachrichteninhalte werden serverseitig verschlüsselt gespeichert (at rest). Eine Ende-zu-Ende-Verschlüsselung ist noch nicht aktiv.',
+      'Textnachrichten und Medien werden clientseitig Ende-zu-Ende verschlüsselt. Der Server speichert Ciphertext und kann Inhalte nicht lesen. Private Schlüssel liegen nur im Browser.',
   };
 }
 
@@ -531,7 +552,7 @@ export function deleteSession(token) {
 export function listUsers(excludeUserId) {
   return getDb()
     .prepare(
-      `SELECT id, username, display_name, avatar_color, status, last_seen_at, show_last_seen, created_at
+      `SELECT id, username, display_name, avatar_color, status, last_seen_at, show_last_seen, public_key, created_at
        FROM users
        WHERE id != ?
        ORDER BY display_name COLLATE NOCASE`
@@ -565,7 +586,7 @@ export function updatePrivacySettings(
     const days = Number(messageRetentionDays);
     if (!ALLOWED_RETENTION_DAYS.has(days)) {
       throw Object.assign(
-        new Error('Ungültige Aufbewahrungsfrist für Nachrichten (erlaubt: 30/90/180/365 Tage).'),
+        new Error('Ungültige Aufbewahrungsfrist für Nachrichten (erlaubt: 7/30/90/180 Tage).'),
         { status: 400 }
       );
     }
@@ -585,6 +606,53 @@ export function touchLastSeen(userId) {
   const stamp = nowIso();
   getDb().prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').run(stamp, userId);
   return stamp;
+}
+
+export function updatePublicKey(userId, publicKey) {
+  let serialized = '';
+  if (publicKey == null || publicKey === '') {
+    serialized = '';
+  } else if (typeof publicKey === 'string') {
+    serialized = publicKey.trim();
+  } else {
+    serialized = JSON.stringify(publicKey);
+  }
+  if (serialized && serialized.length > 4000) {
+    throw Object.assign(new Error('Public Key ist ungültig oder zu groß.'), { status: 400 });
+  }
+  if (serialized) {
+    try {
+      const parsed = JSON.parse(serialized);
+      if (!parsed.kty || !parsed.x || !parsed.y || parsed.crv !== 'P-256') {
+        throw new Error('bad key');
+      }
+    } catch {
+      throw Object.assign(new Error('Public Key muss ein gültiger P-256 JWK sein.'), {
+        status: 400,
+      });
+    }
+  }
+  getDb()
+    .prepare('UPDATE users SET public_key = ? WHERE id = ?')
+    .run(serialized || null, userId);
+  return getUserById(userId, { includePrivate: true });
+}
+
+export function getConversationMemberKeys(conversationId) {
+  return getDb()
+    .prepare(
+      `SELECT u.id, u.username, u.display_name, u.public_key
+       FROM conversation_members m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.conversation_id = ?`
+    )
+    .all(conversationId)
+    .map((row) => ({
+      id: row.id,
+      username: row.username,
+      display_name: row.display_name,
+      public_key: row.public_key ? JSON.parse(row.public_key) : null,
+    }));
 }
 
 export function findOrCreateDirectConversation(userA, userB) {
@@ -704,7 +772,7 @@ export function getConversationForUser(conversationId, userId) {
 
   const members = getDb()
     .prepare(
-      `SELECT u.id, u.username, u.display_name, u.avatar_color, u.status, u.last_seen_at, u.show_last_seen, u.created_at
+      `SELECT u.id, u.username, u.display_name, u.avatar_color, u.status, u.last_seen_at, u.show_last_seen, u.public_key, u.created_at
        FROM conversation_members m
        JOIN users u ON u.id = m.user_id
        WHERE m.conversation_id = ?
@@ -755,13 +823,19 @@ export function getConversationForUser(conversationId, userId) {
 
 function formatMessagePreview(row) {
   if (!row) return null;
-  const plain = decryptText(row.body || '');
   if (row.deleted_at) {
     return {
       ...row,
       body: 'Nachricht gelöscht',
     };
   }
+  if (isE2EBody(row.body)) {
+    if (row.type === 'image') return { ...row, body: 'Verschlüsseltes Bild', e2e: true };
+    if (row.type === 'audio') return { ...row, body: 'Verschlüsselte Sprachnotiz', e2e: true };
+    if (row.type === 'poll') return { ...row, body: 'Verschlüsselte Umfrage', e2e: true };
+    return { ...row, body: 'Verschlüsselte Nachricht', e2e: true };
+  }
+  const plain = revealStoredBody(row.body || '');
   if (row.type === 'image') {
     return { ...row, body: plain ? `Bild: ${plain}` : 'Bild' };
   }
@@ -805,17 +879,24 @@ function hydrateMessage(row, reactionsMap, usersById) {
 
   const deleted = Boolean(row.deleted_at);
   let replyBody = '';
+  let replyE2e = false;
   if (reply) {
-    const replyPlain = decryptText(reply.body || '');
     if (reply.deleted_at) replyBody = 'Nachricht gelöscht';
-    else if (reply.type === 'image') replyBody = replyPlain || 'Bild';
-    else if (reply.type === 'audio') replyBody = 'Sprachnotiz';
-    else if (reply.type === 'poll') replyBody = `Umfrage: ${replyPlain}`;
-    else replyBody = replyPlain;
+    else if (isE2EBody(reply.body)) {
+      replyE2e = true;
+      replyBody = reply.body || '';
+    } else {
+      const replyPlain = revealStoredBody(reply.body || '');
+      if (reply.type === 'image') replyBody = replyPlain || 'Bild';
+      else if (reply.type === 'audio') replyBody = 'Sprachnotiz';
+      else if (reply.type === 'poll') replyBody = `Umfrage: ${replyPlain}`;
+      else replyBody = replyPlain;
+    }
   }
 
   const poll = !deleted && row.type === 'poll' ? getPollForMessage(row.id, null) : null;
-  const plainBody = deleted ? '' : decryptText(row.body || '');
+  const e2e = !deleted && isE2EBody(row.body);
+  const plainBody = deleted ? '' : e2e ? row.body || '' : revealStoredBody(row.body || '');
 
   return {
     id: row.id,
@@ -823,6 +904,7 @@ function hydrateMessage(row, reactionsMap, usersById) {
     sender_id: row.sender_id,
     sender_name: usersById.get(row.sender_id)?.display_name || null,
     body: plainBody,
+    e2e,
     type: row.type || 'text',
     media_url: deleted ? null : row.media_url || null,
     media_duration_ms: row.media_duration_ms || null,
@@ -832,6 +914,7 @@ function hydrateMessage(row, reactionsMap, usersById) {
           sender_id: reply.sender_id,
           sender_name: usersById.get(reply.sender_id)?.display_name || null,
           body: replyBody,
+          e2e: replyE2e,
           type: reply.type || 'text',
         }
       : null,
@@ -944,6 +1027,7 @@ export function createMessage(
     );
   }
   const clean = String(body || '').trim();
+  const e2e = isE2EBody(clean);
 
   if ((msgType === 'text' || msgType === 'poll') && !clean) {
     throw Object.assign(new Error('Nachricht darf nicht leer sein.'), { status: 400 });
@@ -951,8 +1035,23 @@ export function createMessage(
   if ((msgType === 'image' || msgType === 'audio') && !mediaUrl) {
     throw Object.assign(new Error('Medien-Datei fehlt.'), { status: 400 });
   }
-  if (clean.length > 2000) {
+  if (!e2e && clean.length > 2000) {
     throw Object.assign(new Error('Nachricht ist zu lang (max. 2000 Zeichen).'), { status: 400 });
+  }
+  if (e2e && clean.length > 20000) {
+    throw Object.assign(new Error('Verschlüsselte Nachricht ist zu groß.'), { status: 400 });
+  }
+  if ((msgType === 'image' || msgType === 'audio') && !e2e) {
+    throw Object.assign(
+      new Error('Medien müssen Ende-zu-Ende verschlüsselt gesendet werden.'),
+      { status: 400, code: 'E2E_REQUIRED' }
+    );
+  }
+  if ((msgType === 'text' || msgType === 'poll') && !e2e) {
+    throw Object.assign(
+      new Error('Nachrichten müssen Ende-zu-Ende verschlüsselt gesendet werden.'),
+      { status: 400, code: 'E2E_REQUIRED' }
+    );
   }
 
   const membership = getDb()
@@ -979,7 +1078,7 @@ export function createMessage(
     id: newId('m_'),
     conversation_id: conversationId,
     sender_id: senderId,
-    body: encryptText(clean),
+    body: storeMessageBody(clean),
     type: msgType,
     media_url: mediaUrl,
     media_duration_ms: mediaDurationMs,
@@ -1006,8 +1105,18 @@ export function editMessage(messageId, userId, body) {
   if (!clean) {
     throw Object.assign(new Error('Nachricht darf nicht leer sein.'), { status: 400 });
   }
-  if (clean.length > 2000) {
+  const e2e = isE2EBody(clean);
+  if (!e2e && clean.length > 2000) {
     throw Object.assign(new Error('Nachricht ist zu lang (max. 2000 Zeichen).'), { status: 400 });
+  }
+  if (e2e && clean.length > 20000) {
+    throw Object.assign(new Error('Verschlüsselte Nachricht ist zu groß.'), { status: 400 });
+  }
+  if (!e2e) {
+    throw Object.assign(new Error('Bearbeitungen müssen Ende-zu-Ende verschlüsselt sein.'), {
+      status: 400,
+      code: 'E2E_REQUIRED',
+    });
   }
 
   const row = getDb().prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
@@ -1023,7 +1132,7 @@ export function editMessage(messageId, userId, body) {
 
   getDb()
     .prepare('UPDATE messages SET body = ?, edited_at = ? WHERE id = ?')
-    .run(encryptText(clean), nowIso(), messageId);
+    .run(storeMessageBody(clean), nowIso(), messageId);
 
   return getMessageById(messageId);
 }
@@ -1177,7 +1286,15 @@ export function createStatus(userId, { type = 'text', body = '', mediaUrl = null
       `INSERT INTO statuses (id, user_id, type, body, media_url, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(id, userId, statusType, encryptText(clean), mediaUrl, createdAt, expiresAt);
+    .run(
+      id,
+      userId,
+      statusType,
+      isE2EBody(clean) ? clean : encryptText(clean),
+      mediaUrl,
+      createdAt,
+      expiresAt
+    );
 
   return getStatusById(id, userId);
 }
@@ -1211,7 +1328,8 @@ function hydrateStatus(row, viewerId) {
     id: row.id,
     user_id: row.user_id,
     type: row.type,
-    body: decryptText(row.body || ''),
+    body: isE2EBody(row.body) ? row.body || '' : decryptText(row.body || ''),
+    e2e: isE2EBody(row.body),
     media_url: row.media_url,
     created_at: row.created_at,
     expires_at: row.expires_at,
@@ -1488,7 +1606,12 @@ export function exportUserData(userId) {
     .all(userId)
     .map((row) => ({
       ...row,
-      body: row.deleted_at ? '' : decryptText(row.body || ''),
+      body: row.deleted_at
+        ? ''
+        : isE2EBody(row.body)
+          ? row.body
+          : revealStoredBody(row.body || ''),
+      e2e: isE2EBody(row.body),
     }));
 
   const reactions = getDb()
@@ -1508,7 +1631,8 @@ export function exportUserData(userId) {
     .all(userId)
     .map((row) => ({
       ...row,
-      body: decryptText(row.body || ''),
+      body: isE2EBody(row.body) ? row.body : decryptText(row.body || ''),
+      e2e: isE2EBody(row.body),
     }));
 
   return {
@@ -1523,7 +1647,7 @@ export function exportUserData(userId) {
     reactions,
     statuses,
     note:
-      'Dies ist deine Datenkopie nach Art. 15/20 DSGVO. Passwort-Hashes sind nicht enthalten. Nachrichteninhalte werden serverseitig entschlüsselt ausgegeben. Keine E2E-Verschlüsselung.',
+      'Datenkopie nach Art. 15/20 DSGVO. Passwort-Hashes fehlen. E2E-Nachrichten erscheinen als Ciphertext — Klartext nur im Browser mit privatem Schlüssel.',
   };
 }
 
@@ -1765,6 +1889,14 @@ export function purgeExpiredMessagesByRetention() {
 
 function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
   const showLastSeen = Boolean(row.show_last_seen);
+  let publicKey = null;
+  if (row.public_key) {
+    try {
+      publicKey = typeof row.public_key === 'string' ? JSON.parse(row.public_key) : row.public_key;
+    } catch {
+      publicKey = null;
+    }
+  }
   const base = {
     id: row.id,
     username: row.username,
@@ -1772,6 +1904,8 @@ function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
     avatar_color: row.avatar_color,
     status: row.status || '',
     created_at: row.created_at,
+    public_key: publicKey,
+    has_e2e_key: Boolean(publicKey),
   };
 
   if (forPeer) {
@@ -1801,6 +1935,7 @@ function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
       has_media_consent: Boolean(row.media_consent_at),
       has_impulse_consent: Boolean(row.impulse_consent_at),
       session_ttl_days: SESSION_DAYS,
+      e2e_enabled: true,
     };
   }
 

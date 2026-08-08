@@ -47,44 +47,43 @@
     <main class="legal-page">
       <a class="back" href="/">← Zurück zu Relay</a>
       <h1>Datenschutzerklärung</h1>
-      <p class="meta">Stand / Version: <strong>2026-08-08.3</strong> · Messenger „Relay“ · <a href="/impressum.html">Impressum</a></p>
+      <p class="meta">Stand / Version: <strong>2026-08-08.4</strong> · Messenger „Relay“ · <a href="/impressum.html">Impressum</a></p>
 
       <h2>1. Verantwortlicher</h2>
       <p>
-        Relay ist eine Demo-/Self-Hosting-Anwendung. Verantwortlicher im Sinne der DSGVO ist die Person bzw. Stelle,
+        Relay ist eine Self-Hosting-Anwendung. Verantwortlicher im Sinne der DSGVO ist die Person bzw. Stelle,
         die diese Instanz betreibt. Kontaktdaten siehe <a href="/impressum.html">Impressum</a>
         (Angaben gemäß §&nbsp;5 DDG).
       </p>
 
       <h2>2. Welche Daten wir verarbeiten</h2>
       <ul>
-        <li>Kontodaten: Benutzername, Anzeigename, Passwort-Hash (scrypt), Avatar-Farbe, optional Status-Text</li>
-        <li><strong>Chat-Nachrichten</strong> (Text, Antworten, Reaktionen, Umfragen), Metadaten (Zeit, Zustellung/Gelesen)</li>
-        <li>Medien: Fotos und Sprachnotizen in Chats sowie ggf. Status-Bilder</li>
-        <li>Status-Beiträge (max. 24 Stunden)</li>
-        <li>Technische Daten: Session-Token (30 Tage), optional „Zuletzt online“, Einwilligungsnachweise (Zeitpunkt, Scope, Rechtsgrundlage, gehashte IP, User-Agent)</li>
+        <li>Kontodaten: Benutzername, Anzeigename, Passwort-Hash, öffentlicher E2E-Schlüssel</li>
+        <li><strong>Chat-Nachrichten als Ciphertext</strong> (Ende-zu-Ende verschlüsselt) sowie Metadaten (Zeit, Zustellung/Gelesen)</li>
+        <li>Medien: verschlüsselte Fotos/Sprachnotizen</li>
+        <li>Status-Beiträge (max. 24 Stunden; serverseitig at-rest)</li>
+        <li>Technische Daten: Session-Token (30 Tage), optional „Zuletzt online“, Einwilligungsnachweise</li>
       </ul>
 
-      <h2 id="nachrichten">3. Nachrichten im Besonderen</h2>
+      <h2 id="nachrichten">3. Nachrichten und E2E</h2>
       <div class="emphasis">
-        Nachrichteninhalte sind personenbezogene Daten. Ohne serverseitige Verarbeitung kann der Messenger nicht
-        funktionieren. Es gibt <strong>keine Ende-zu-Ende-Verschlüsselung</strong>; Inhalte liegen technisch auf dem
-        Server vor und werden <strong>at rest</strong> (AES-256-GCM) verschlüsselt gespeichert.
+        Text- und Medieninhalte werden <strong>im Browser Ende-zu-Ende verschlüsselt</strong> (ECDH P-256 + AES-GCM).
+        Der Server speichert Ciphertext und kann Inhalte nicht lesen. Private Schlüssel liegen nur im jeweiligen Browser
+        (localStorage). Bei Gerätewechsel ohne Schlüssel-Backup sind alte Nachrichten dort nicht lesbar.
       </div>
 
       <h3>3.1 Zwecke</h3>
       <ul>
-        <li>Zustellung von Nachrichten an Chat-Teilnehmer</li>
-        <li>Anzeige des Chatverlaufs für die Beteiligten</li>
-        <li>Medien, Antworten, Reaktionen, Umfragen, Anheften, Lesebestätigungen</li>
+        <li>Zustellung verschlüsselter Nachrichten an Chat-Teilnehmer</li>
+        <li>Bereitstellung von Metadaten, Reaktionen, Umfragen, Anheften</li>
       </ul>
 
       <h3>3.2 Rechtsgrundlagen</h3>
       <ul>
-        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO</strong> — Erfüllung des Nutzungsvertrags / Messenger-Funktion</li>
-        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO</strong> — ausdrückliche Einwilligung zur Speicherung (keine E2E)</li>
-        <li><strong>Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;c und lit.&nbsp;e DSGVO</strong> — Datenminimierung und Speicherbegrenzung (30/90/180/365 Tage)</li>
-        <li><strong>Art.&nbsp;32 DSGVO</strong> — Sicherheit (Hashing, Session-Timeout, Verschlüsselung at rest, Security-Header)</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO</strong> — Messenger-Funktion / Zustellung</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO</strong> — Einwilligungen (Policy, Metadaten/Nachrichten, Medien, Status)</li>
+        <li><strong>Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;e DSGVO</strong> — Speicherbegrenzung (Standard 30 Tage, wählbar 7/30/90/180)</li>
+        <li><strong>Art.&nbsp;32 DSGVO</strong> — E2E, Hashing, Session-Timeout, Security-Header</li>
       </ul>
 
       <h3>3.3 Einwilligungen (granular)</h3>
@@ -109,8 +108,8 @@
 
       <h3>3.5 Speicherdauer Nachrichten</h3>
       <ul>
-        <li>Standard: 365 Tage, danach automatische Bereinigung inkl. Medienentfernung</li>
-        <li>Individuell kürzbar: 30/90/180/365 Tage</li>
+        <li>Standard: 30 Tage, danach automatische Bereinigung inkl. Medienentfernung</li>
+        <li>Individuell: 7/30/90/180 Tage</li>
         <li>Sofortige Löschung einzelner eigener Nachrichten möglich</li>
         <li>Kontolöschung: Entfernung eigener Inhalte / Mitgliedschaften (Art.&nbsp;17 DSGVO)</li>
       </ul>
@@ -149,7 +148,7 @@
         <li>„Zuletzt online“ standardmäßig aus</li>
         <li>Granulare Einwilligungen bei Registrierung</li>
         <li>Wählbare Aufbewahrungsfristen</li>
-        <li>Verschlüsselung personenbezogener Nachrichteninhalte at rest</li>
+        <li>Verschlüsselung: E2E für Chat-Inhalte; private Schlüssel nur im Browser</li>
         <li>Keine Google-Fonts / externe Tracker</li>
       </ul>
 
@@ -157,8 +156,7 @@
       <p>
         Passwörter: scrypt. Sessions: zufällige Tokens mit Ablauf. Uploads: Größenlimit.
         Security-Header (CSP, X-Frame-Options, Referrer-Policy). HTTPS für Produktivbetrieb empfohlen.
-        Schlüssel: Umgebungsvariable <code>RELAY_ENCRYPTION_KEY</code> setzen.
-        <strong>Keine E2E-Verschlüsselung</strong> in dieser Version.
+        Chat-Inhalte: <strong>Ende-zu-Ende-Verschlüsselung</strong> (Client). Hosting möglichst in der EU.
       </p>
 
       <h2>9. Browser-Speicherung</h2>

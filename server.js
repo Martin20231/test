@@ -17,6 +17,8 @@ import {
   updateStatus,
   updatePrivacySettings,
   touchLastSeen,
+  updatePublicKey,
+  getConversationMemberKeys,
   findOrCreateDirectConversation,
   createGroupConversation,
   listConversations,
@@ -76,8 +78,9 @@ const upload = multer({
     const ok =
       file.mimetype.startsWith('image/') ||
       file.mimetype.startsWith('audio/') ||
-      file.mimetype === 'video/webm';
-    cb(ok ? null : new Error('Nur Bilder oder Audio erlaubt.'), ok);
+      file.mimetype === 'video/webm' ||
+      file.mimetype === 'application/octet-stream';
+    cb(ok ? null : new Error('Nur Bilder, Audio oder verschlüsselte Medien erlaubt.'), ok);
   },
 });
 
@@ -252,6 +255,27 @@ app.patch('/api/me/status', authMiddleware, (req, res) => {
     const user = updateStatus(req.user.id, req.body.status);
     io.emit('presence:status', { user_id: user.id, status: user.status });
     res.json({ user });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.put('/api/me/public-key', authMiddleware, (req, res) => {
+  try {
+    const user = updatePublicKey(req.user.id, req.body.public_key);
+    res.json({ user });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/conversations/:id/keys', authMiddleware, (req, res) => {
+  try {
+    const conversation = getConversationForUser(req.params.id, req.user.id);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Chat nicht gefunden.' });
+    }
+    res.json({ members: getConversationMemberKeys(req.params.id) });
   } catch (error) {
     sendError(res, error);
   }
@@ -473,7 +497,13 @@ app.post(
       }
 
       const mime = req.file.mimetype || '';
-      const type = mime.startsWith('image/') ? 'image' : 'audio';
+      const requested = req.body.type;
+      const type =
+        requested === 'image' || requested === 'audio'
+          ? requested
+          : mime.startsWith('image/')
+            ? 'image'
+            : 'audio';
       const mediaUrl = `/uploads/${req.file.filename}`;
       const duration = req.body.media_duration_ms
         ? Number(req.body.media_duration_ms)
