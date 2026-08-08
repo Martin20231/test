@@ -67,8 +67,12 @@ const els = {
   btnCloseGroup: document.getElementById('btn-close-group'),
   privacyDialog: document.getElementById('privacy-dialog'),
   privacyLastSeen: document.getElementById('privacy-last-seen'),
+  privacyRetention: document.getElementById('privacy-retention'),
   btnExportData: document.getElementById('btn-export-data'),
   btnDeleteAccount: document.getElementById('btn-delete-account'),
+  messageConsentDialog: document.getElementById('message-consent-dialog'),
+  messageConsentForm: document.getElementById('message-consent-form'),
+  messageConsentCheck: document.getElementById('message-consent-check'),
   storageBanner: document.getElementById('storage-banner'),
   btnAcceptStorage: document.getElementById('btn-accept-storage'),
   replyBar: document.getElementById('reply-bar'),
@@ -141,6 +145,13 @@ function maybeShowStorageBanner() {
   els.storageBanner.classList.remove('is-hidden');
 }
 
+function ensureMessageConsent() {
+  if (state.user?.has_message_consent || state.user?.message_consent_at) return true;
+  els.messageConsentCheck.checked = false;
+  if (!els.messageConsentDialog.open) els.messageConsentDialog.showModal();
+  return false;
+}
+
 function formatDuration(ms = 0) {
   const total = Math.max(0, Math.round(ms / 1000));
   const m = Math.floor(total / 60);
@@ -190,7 +201,11 @@ async function api(path, { method = 'GET', body, auth = true, formData } = {}) {
     body: formData || (body ? JSON.stringify(body) : undefined),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Anfrage fehlgeschlagen.');
+  if (!res.ok) {
+    const error = new Error(data.error || 'Anfrage fehlgeschlagen.');
+    error.code = data.code;
+    throw error;
+  }
   return data;
 }
 
@@ -367,6 +382,7 @@ async function bootstrapSession() {
     showApp();
     connectSocket();
     await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
+    ensureMessageConsent();
   } catch {
     localStorage.removeItem(TOKEN_KEY);
     state.token = null;
@@ -767,32 +783,39 @@ async function markRead(conversationId) {
 async function sendMessage(body) {
   const conversationId = state.activeConversationId;
   if (!conversationId || !body.trim()) return;
+  if (!ensureMessageConsent()) return;
 
   const payload = { body };
   if (state.replyTo) payload.reply_to_id = state.replyTo.id;
 
-  const data = await api(`/api/conversations/${conversationId}/messages`, {
-    method: 'POST',
-    body: payload,
-  });
+  try {
+    const data = await api(`/api/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: payload,
+    });
 
-  state.replyTo = null;
-  updateReplyBar();
-  upsertLocalMessage(data.message);
+    state.replyTo = null;
+    updateReplyBar();
+    upsertLocalMessage(data.message);
 
-  const conversation = state.conversations.find((c) => c.id === conversationId);
-  if (conversation) {
-    conversation.last_message = previewFromMessage(data.message);
-    state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
-    renderConversationList();
+    const conversation = state.conversations.find((c) => c.id === conversationId);
+    if (conversation) {
+      conversation.last_message = previewFromMessage(data.message);
+      state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
+      renderConversationList();
+    }
+
+    state.socket?.emit('typing:stop', { conversation_id: conversationId });
+  } catch (error) {
+    if (error.message?.includes('Einwilligung')) ensureMessageConsent();
+    throw error;
   }
-
-  state.socket?.emit('typing:stop', { conversation_id: conversationId });
 }
 
 async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' } = {}) {
   const conversationId = state.activeConversationId;
   if (!conversationId || !file) return;
+  if (!ensureMessageConsent()) return;
 
   const formData = new FormData();
   formData.append('file', file);
@@ -801,20 +824,25 @@ async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' }
   if (durationMs != null) formData.append('media_duration_ms', String(durationMs));
   if (typeHint) formData.append('type', typeHint);
 
-  const data = await api(`/api/conversations/${conversationId}/media`, {
-    method: 'POST',
-    formData,
-  });
+  try {
+    const data = await api(`/api/conversations/${conversationId}/media`, {
+      method: 'POST',
+      formData,
+    });
 
-  state.replyTo = null;
-  updateReplyBar();
-  upsertLocalMessage(data.message);
+    state.replyTo = null;
+    updateReplyBar();
+    upsertLocalMessage(data.message);
 
-  const conversation = state.conversations.find((c) => c.id === conversationId);
-  if (conversation) {
-    conversation.last_message = previewFromMessage(data.message);
-    state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
-    renderConversationList();
+    const conversation = state.conversations.find((c) => c.id === conversationId);
+    if (conversation) {
+      conversation.last_message = previewFromMessage(data.message);
+      state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
+      renderConversationList();
+    }
+  } catch (error) {
+    if (error.message?.includes('Einwilligung')) ensureMessageConsent();
+    throw error;
   }
 }
 
@@ -986,6 +1014,7 @@ async function handleAuthSuccess(data) {
   showApp();
   connectSocket();
   await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
+  ensureMessageConsent();
 }
 
 els.loginForm.addEventListener('submit', async (event) => {
@@ -1018,6 +1047,7 @@ els.registerForm.addEventListener('submit', async (event) => {
         password: form.get('password'),
         privacy_consent: form.get('privacy_consent') === 'on',
         age_confirmed: form.get('age_confirmed') === 'on',
+        message_consent: form.get('message_consent') === 'on',
       },
     });
     await handleAuthSuccess(data);
@@ -1059,6 +1089,7 @@ els.btnNewGroup.addEventListener('click', async () => {
 
 els.btnPrivacy.addEventListener('click', () => {
   els.privacyLastSeen.checked = state.user?.show_last_seen !== false;
+  els.privacyRetention.value = String(state.user?.message_retention_days || 365);
   els.privacyDialog.showModal();
 });
 
@@ -1072,6 +1103,36 @@ els.privacyLastSeen.addEventListener('change', async () => {
     showToast(els.privacyLastSeen.checked ? 'Zuletzt online sichtbar' : 'Zuletzt online ausgeblendet');
   } catch (error) {
     els.privacyLastSeen.checked = !els.privacyLastSeen.checked;
+    showToast(error.message);
+  }
+});
+
+els.privacyRetention.addEventListener('change', async () => {
+  try {
+    const data = await api('/api/me/privacy', {
+      method: 'PATCH',
+      body: { message_retention_days: Number(els.privacyRetention.value) },
+    });
+    state.user = data.user;
+    showToast(`Nachrichten-Frist: ${els.privacyRetention.value} Tage`);
+  } catch (error) {
+    els.privacyRetention.value = String(state.user?.message_retention_days || 365);
+    showToast(error.message);
+  }
+});
+
+els.messageConsentForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!els.messageConsentCheck.checked) return;
+  try {
+    const data = await api('/api/me/message-consent', {
+      method: 'POST',
+      body: { message_consent: true },
+    });
+    state.user = data.user;
+    els.messageConsentDialog.close();
+    showToast('Nachrichten-Einwilligung gespeichert');
+  } catch (error) {
     showToast(error.message);
   }
 });

@@ -40,12 +40,14 @@ export function initDatabase() {
     );
 
     CREATE TABLE IF NOT EXISTS privacy_consents (
-      id         TEXT PRIMARY KEY,
-      user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
-      version    TEXT NOT NULL,
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+      version     TEXT NOT NULL,
+      scope       TEXT NOT NULL DEFAULT 'policy',
+      legal_basis TEXT,
       accepted_at TEXT NOT NULL,
-      ip_hash    TEXT,
-      user_agent TEXT
+      ip_hash     TEXT,
+      user_agent  TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -144,6 +146,20 @@ function migrateSchema(database) {
   if (!userCols.includes('privacy_consent_version')) {
     database.exec('ALTER TABLE users ADD COLUMN privacy_consent_version TEXT');
   }
+  if (!userCols.includes('message_consent_at')) {
+    database.exec('ALTER TABLE users ADD COLUMN message_consent_at TEXT');
+  }
+  if (!userCols.includes('message_retention_days')) {
+    database.exec('ALTER TABLE users ADD COLUMN message_retention_days INTEGER NOT NULL DEFAULT 365');
+  }
+
+  const consentCols = tableColumns(database, 'privacy_consents');
+  if (!consentCols.includes('scope')) {
+    database.exec(`ALTER TABLE privacy_consents ADD COLUMN scope TEXT NOT NULL DEFAULT 'policy'`);
+  }
+  if (!consentCols.includes('legal_basis')) {
+    database.exec('ALTER TABLE privacy_consents ADD COLUMN legal_basis TEXT');
+  }
 
   const convCols = tableColumns(database, 'conversations');
   if (!convCols.includes('type')) {
@@ -208,10 +224,27 @@ const AVATAR_COLORS = [
   '#386641',
 ];
 
-const PRIVACY_POLICY_VERSION = '2026-08-08';
+const PRIVACY_POLICY_VERSION = '2026-08-08.2';
+const DEFAULT_MESSAGE_RETENTION_DAYS = 365;
+const ALLOWED_RETENTION_DAYS = new Set([30, 90, 180, 365]);
 
 export function getPrivacyPolicyVersion() {
   return PRIVACY_POLICY_VERSION;
+}
+
+export function getMessagePrivacyInfo() {
+  return {
+    legal_basis_contract: 'Art. 6 Abs. 1 lit. b DSGVO',
+    legal_basis_consent: 'Art. 6 Abs. 1 lit. a DSGVO',
+    purpose:
+      'Übermittlung und berechtigtes Speichern von Chat-Nachrichten zur Bereitstellung des Messengers',
+    storage_limitation: 'Art. 5 Abs. 1 lit. e DSGVO',
+    default_retention_days: DEFAULT_MESSAGE_RETENTION_DAYS,
+    allowed_retention_days: [...ALLOWED_RETENTION_DAYS],
+    e2e_encryption: false,
+    note:
+      'Nachrichteninhalte werden serverseitig verarbeitet. Eine Ende-zu-Ende-Verschlüsselung ist derzeit nicht aktiv.',
+  };
 }
 
 function pickAvatarColor(username) {
@@ -252,7 +285,15 @@ function seedDemoUsers(database) {
   }
 }
 
-export function createUser({ username, displayName, password, privacyConsent, ageConfirmed, requestMeta = {} }) {
+export function createUser({
+  username,
+  displayName,
+  password,
+  privacyConsent,
+  messageConsent,
+  ageConfirmed,
+  requestMeta = {},
+}) {
   const cleanUser = String(username || '')
     .trim()
     .toLowerCase()
@@ -276,6 +317,14 @@ export function createUser({ username, displayName, password, privacyConsent, ag
   if (!privacyConsent) {
     throw Object.assign(new Error('Bitte der Datenschutzerklärung zustimmen.'), { status: 400 });
   }
+  if (!messageConsent) {
+    throw Object.assign(
+      new Error(
+        'Bitte der Verarbeitung von Nachrichten zustimmen (Art. 6 Abs. 1 lit. a und lit. b DSGVO).'
+      ),
+      { status: 400 }
+    );
+  }
 
   const existing = getDb().prepare('SELECT id FROM users WHERE username = ?').get(cleanUser);
   if (existing) {
@@ -294,6 +343,8 @@ export function createUser({ username, displayName, password, privacyConsent, ag
     show_last_seen: 1,
     privacy_consent_at: consentAt,
     privacy_consent_version: PRIVACY_POLICY_VERSION,
+    message_consent_at: consentAt,
+    message_retention_days: DEFAULT_MESSAGE_RETENTION_DAYS,
     created_at: consentAt,
   };
 
@@ -302,10 +353,12 @@ export function createUser({ username, displayName, password, privacyConsent, ag
       .prepare(
         `INSERT INTO users (
            id, username, display_name, password_hash, password_salt, avatar_color, status,
-           last_seen_at, show_last_seen, privacy_consent_at, privacy_consent_version, created_at
+           last_seen_at, show_last_seen, privacy_consent_at, privacy_consent_version,
+           message_consent_at, message_retention_days, created_at
          ) VALUES (
            @id, @username, @display_name, @password_hash, @password_salt, @avatar_color, @status,
-           @last_seen_at, @show_last_seen, @privacy_consent_at, @privacy_consent_version, @created_at
+           @last_seen_at, @show_last_seen, @privacy_consent_at, @privacy_consent_version,
+           @message_consent_at, @message_retention_days, @created_at
          )`
       )
       .run({
@@ -314,23 +367,36 @@ export function createUser({ username, displayName, password, privacyConsent, ag
         password_salt: salt,
       });
 
-    getDb()
-      .prepare(
-        `INSERT INTO privacy_consents (id, user_id, version, accepted_at, ip_hash, user_agent)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        newId('pc_'),
-        user.id,
-        PRIVACY_POLICY_VERSION,
-        consentAt,
-        requestMeta.ipHash || null,
-        String(requestMeta.userAgent || '').slice(0, 300) || null
-      );
+    insertConsent(user.id, 'policy', 'Art. 6 Abs. 1 lit. a DSGVO', consentAt, requestMeta);
+    insertConsent(
+      user.id,
+      'messages',
+      'Art. 6 Abs. 1 lit. a DSGVO i. V. m. Art. 6 Abs. 1 lit. b DSGVO',
+      consentAt,
+      requestMeta
+    );
   });
   tx();
 
   return publicUser(user, { includePrivate: true });
+}
+
+function insertConsent(userId, scope, legalBasis, acceptedAt, requestMeta = {}) {
+  getDb()
+    .prepare(
+      `INSERT INTO privacy_consents (id, user_id, version, scope, legal_basis, accepted_at, ip_hash, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      newId('pc_'),
+      userId,
+      PRIVACY_POLICY_VERSION,
+      scope,
+      legalBasis,
+      acceptedAt,
+      requestMeta.ipHash || null,
+      String(requestMeta.userAgent || '').slice(0, 300) || null
+    );
 }
 
 export function authenticateUser(username, password) {
@@ -393,12 +459,24 @@ export function updateStatus(userId, status) {
   return getUserById(userId, { includePrivate: true });
 }
 
-export function updatePrivacySettings(userId, { showLastSeen } = {}) {
+export function updatePrivacySettings(userId, { showLastSeen, messageRetentionDays } = {}) {
   if (typeof showLastSeen === 'boolean') {
     getDb()
       .prepare('UPDATE users SET show_last_seen = ? WHERE id = ?')
       .run(showLastSeen ? 1 : 0, userId);
   }
+
+  if (messageRetentionDays != null) {
+    const days = Number(messageRetentionDays);
+    if (!ALLOWED_RETENTION_DAYS.has(days)) {
+      throw Object.assign(
+        new Error('Ungültige Aufbewahrungsfrist für Nachrichten (erlaubt: 30/90/180/365 Tage).'),
+        { status: 400 }
+      );
+    }
+    getDb().prepare('UPDATE users SET message_retention_days = ? WHERE id = ?').run(days, userId);
+  }
+
   return getUserById(userId, { includePrivate: true });
 }
 
@@ -713,6 +791,19 @@ export function createMessage(
   senderId,
   { body = '', replyToId = null, type = 'text', mediaUrl = null, mediaDurationMs = null } = {}
 ) {
+  const sender = getDb().prepare('SELECT * FROM users WHERE id = ?').get(senderId);
+  if (!sender) {
+    throw Object.assign(new Error('Benutzer nicht gefunden.'), { status: 404 });
+  }
+  if (!sender.message_consent_at) {
+    throw Object.assign(
+      new Error(
+        'Ohne Einwilligung zur Nachrichtenverarbeitung können keine Chats gesendet werden (Art. 6 Abs. 1 lit. a/b DSGVO).'
+      ),
+      { status: 403, code: 'MESSAGE_CONSENT_REQUIRED' }
+    );
+  }
+
   const msgType = ['text', 'image', 'audio'].includes(type) ? type : 'text';
   const clean = String(body || '').trim();
 
@@ -1017,7 +1108,7 @@ export function exportUserData(userId) {
 
   const consents = getDb()
     .prepare(
-      `SELECT id, version, accepted_at, ip_hash, user_agent
+      `SELECT id, version, scope, legal_basis, accepted_at, ip_hash, user_agent
        FROM privacy_consents WHERE user_id = ? ORDER BY accepted_at DESC`
     )
     .all(userId);
@@ -1063,6 +1154,7 @@ export function exportUserData(userId) {
   return {
     exported_at: nowIso(),
     privacy_policy_version: PRIVACY_POLICY_VERSION,
+    message_privacy: getMessagePrivacyInfo(),
     user: publicUser(user, { includePrivate: true }),
     consents,
     conversations,
@@ -1070,7 +1162,7 @@ export function exportUserData(userId) {
     reactions,
     statuses,
     note:
-      'Dies ist deine Datenkopie nach Art. 15/20 DSGVO. Passwort-Hashes sind nicht enthalten.',
+      'Dies ist deine Datenkopie nach Art. 15/20 DSGVO. Passwort-Hashes sind nicht enthalten. Nachrichten werden auf Basis von Art. 6 Abs. 1 lit. a und lit. b DSGVO verarbeitet.',
   };
 }
 
@@ -1155,21 +1247,68 @@ export function recordPrivacyConsent(userId, requestMeta = {}) {
     )
     .run(stamp, PRIVACY_POLICY_VERSION, userId);
 
+  insertConsent(userId, 'policy', 'Art. 6 Abs. 1 lit. a DSGVO', stamp, requestMeta);
+  return getUserById(userId, { includePrivate: true });
+}
+
+export function recordMessageConsent(userId, requestMeta = {}) {
+  const stamp = nowIso();
   getDb()
     .prepare(
-      `INSERT INTO privacy_consents (id, user_id, version, accepted_at, ip_hash, user_agent)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `UPDATE users
+       SET message_consent_at = ?,
+           privacy_consent_version = ?,
+           message_retention_days = COALESCE(message_retention_days, ?)
+       WHERE id = ?`
     )
-    .run(
-      newId('pc_'),
-      userId,
-      PRIVACY_POLICY_VERSION,
-      stamp,
-      requestMeta.ipHash || null,
-      String(requestMeta.userAgent || '').slice(0, 300) || null
-    );
+    .run(stamp, PRIVACY_POLICY_VERSION, DEFAULT_MESSAGE_RETENTION_DAYS, userId);
 
+  insertConsent(
+    userId,
+    'messages',
+    'Art. 6 Abs. 1 lit. a DSGVO i. V. m. Art. 6 Abs. 1 lit. b DSGVO',
+    stamp,
+    requestMeta
+  );
   return getUserById(userId, { includePrivate: true });
+}
+
+export function purgeExpiredMessagesByRetention() {
+  const users = getDb()
+    .prepare('SELECT id, message_retention_days FROM users')
+    .all();
+
+  const deletedMedia = [];
+  let deletedCount = 0;
+
+  const selectExpired = getDb().prepare(
+    `SELECT id, media_url
+     FROM messages
+     WHERE sender_id = ?
+       AND deleted_at IS NULL
+       AND created_at < ?`
+  );
+  const softDelete = getDb().prepare(
+    `UPDATE messages
+     SET deleted_at = ?, body = '', media_url = NULL
+     WHERE id = ?`
+  );
+
+  const tx = getDb().transaction(() => {
+    for (const user of users) {
+      const days = Number(user.message_retention_days) || DEFAULT_MESSAGE_RETENTION_DAYS;
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const rows = selectExpired.all(user.id, cutoff);
+      for (const row of rows) {
+        if (row.media_url) deletedMedia.push(row.media_url);
+        softDelete.run(nowIso(), row.id);
+        deletedCount += 1;
+      }
+    }
+  });
+  tx();
+
+  return { deleted_count: deletedCount, media_urls: deletedMedia };
 }
 
 function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
@@ -1198,6 +1337,12 @@ function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
       show_last_seen: showLastSeen,
       privacy_consent_at: row.privacy_consent_at || null,
       privacy_consent_version: row.privacy_consent_version || null,
+      message_consent_at: row.message_consent_at || null,
+      message_retention_days:
+        row.message_retention_days == null
+          ? DEFAULT_MESSAGE_RETENTION_DAYS
+          : Number(row.message_retention_days),
+      has_message_consent: Boolean(row.message_consent_at),
     };
   }
 

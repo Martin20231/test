@@ -62,7 +62,11 @@
           </label>
           <label class="check-row">
             <input name="privacy_consent" type="checkbox" required />
-            <span>Ich stimme der <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> zu.</span>
+            <span>Ich stimme der <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> zu (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO).</span>
+          </label>
+          <label class="check-row">
+            <input name="message_consent" type="checkbox" required />
+            <span>Ich willige in die Verarbeitung meiner <strong>Chat-Nachrichten</strong> ein (Übermittlung &amp; Speicherung auf dem Server nach <strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO</strong>). Hinweis: keine Ende-zu-Ende-Verschlüsselung.</span>
           </label>
           <button type="submit" class="btn btn-primary">Konto erstellen</button>
         </form>
@@ -166,6 +170,10 @@
               <span id="reply-bar-body"></span>
             </div>
             <button type="button" id="btn-cancel-reply" class="icon-btn" aria-label="Antwort abbrechen">×</button>
+          </div>
+
+          <div id="message-legal-note" class="message-legal-note">
+            Nachrichten: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO · serverseitig gespeichert · Frist in Privatsphäre einstellbar
           </div>
 
           <form id="composer" class="composer">
@@ -278,12 +286,44 @@
             <input id="privacy-last-seen" type="checkbox" />
             <span>„Zuletzt online“ für andere anzeigen</span>
           </label>
+          <label>
+            <span>Nachrichten-Aufbewahrung (Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;e DSGVO)</span>
+            <select id="privacy-retention">
+              <option value="30">30 Tage</option>
+              <option value="90">90 Tage</option>
+              <option value="180">180 Tage</option>
+              <option value="365">365 Tage (Standard)</option>
+            </select>
+          </label>
           <p class="privacy-help">
-            Nach DSGVO kannst du deine Daten exportieren oder dein Konto löschen.
-            Details: <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>
+            Nachrichten werden auf Grundlage von <strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO</strong>
+            verarbeitet und nach der gewählten Frist gelöscht.
+            Details: <a href="/datenschutz.html#nachrichten" target="_blank" rel="noopener">Datenschutzerklärung</a>
           </p>
           <button type="button" id="btn-export-data" class="btn btn-secondary">Meine Daten exportieren</button>
           <button type="button" id="btn-delete-account" class="btn btn-danger">Konto unwiderruflich löschen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="message-consent-dialog" class="sheet">
+      <form id="message-consent-form" class="sheet-inner">
+        <header class="sheet-header">
+          <h2>Einwilligung Nachrichten</h2>
+        </header>
+        <div class="group-form-fields">
+          <p class="privacy-help">
+            Zum Chatten brauchen wir deine Einwilligung zur Verarbeitung von Nachrichteninhalten
+            (<strong>(Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO)</strong> sowie die vertragliche Notwendigkeit
+            der Übermittlung <strong>(Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO)</strong>.
+            Es gibt keine Ende-zu-Ende-Verschlüsselung. Details in der
+            <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.
+          </p>
+          <label class="check-row">
+            <input id="message-consent-check" type="checkbox" required />
+            <span>Ich willige in die Verarbeitung meiner Chat-Nachrichten ein.</span>
+          </label>
+          <button type="submit" class="btn btn-primary">Einwilligen &amp; weiterchatten</button>
         </div>
       </form>
     </dialog>

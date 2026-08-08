@@ -632,6 +632,25 @@ input {
   animation-delay: 0.3s;
 }
 
+.privacy-fields select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--ink);
+}
+
+.message-legal-note {
+  margin: 0 14px 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(6, 78, 74, 0.08);
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
 .composer {
   display: grid;
   grid-template-columns: auto 1fr auto auto;

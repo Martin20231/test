@@ -30,6 +30,14 @@ npm start
 
 Tipp: Zwei Browserfenster (oder ein normales + ein Inkognito-Fenster) öffnen und live schreiben.
 
+## Datenschutz (DSGVO)
+
+- Datenschutzerklärung: `/datenschutz.html`
+- Einwilligung + Altersbestätigung (16+) bei Registrierung
+- Datenexport und Kontolöschung unter Privatsphäre
+- „Zuletzt online“ optional ausblendbar
+- Keine Tracking-Cookies; nur technisch notwendiges Session-Token
+
 ## Deploy (z. B. Render)
 
 Die App braucht einen laufenden Node-Server (WebSockets).  

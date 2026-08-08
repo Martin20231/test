@@ -35,7 +35,10 @@ import {
   exportUserData,
   deleteUserAccount,
   recordPrivacyConsent,
+  recordMessageConsent,
   getPrivacyPolicyVersion,
+  getMessagePrivacyInfo,
+  purgeExpiredMessagesByRetention,
 } from './db/database.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -152,7 +155,9 @@ function authMiddleware(req, res, next) {
 
 function sendError(res, error) {
   const status = error.status || 500;
-  res.status(status).json({ error: error.message || 'Interner Fehler.' });
+  const payload = { error: error.message || 'Interner Fehler.' };
+  if (error.code) payload.code = error.code;
+  res.status(status).json(payload);
 }
 
 function emitToConversation(conversationId, event, payload) {
@@ -170,6 +175,7 @@ app.get('/api/privacy/policy-version', (_req, res) => {
   res.json({
     version: getPrivacyPolicyVersion(),
     url: '/datenschutz.html',
+    messages: getMessagePrivacyInfo(),
   });
 });
 
@@ -180,6 +186,7 @@ app.post('/api/auth/register', (req, res) => {
       displayName: req.body.display_name || req.body.displayName,
       password: req.body.password,
       privacyConsent: Boolean(req.body.privacy_consent),
+      messageConsent: Boolean(req.body.message_consent),
       ageConfirmed: Boolean(req.body.age_confirmed),
       requestMeta: requestMeta(req),
     });
@@ -211,6 +218,7 @@ app.get('/api/me', authMiddleware, (req, res) => {
     user: req.user,
     online_user_ids: [...onlineUsers.keys()],
     privacy_policy_version: getPrivacyPolicyVersion(),
+    message_privacy: getMessagePrivacyInfo(),
   });
 });
 
@@ -228,6 +236,7 @@ app.patch('/api/me/privacy', authMiddleware, (req, res) => {
   try {
     const user = updatePrivacySettings(req.user.id, {
       showLastSeen: req.body.show_last_seen,
+      messageRetentionDays: req.body.message_retention_days,
     });
     io.emit('presence:privacy', {
       user_id: user.id,
@@ -244,6 +253,24 @@ app.post('/api/me/privacy-consent', authMiddleware, (req, res) => {
   try {
     const user = recordPrivacyConsent(req.user.id, requestMeta(req));
     res.json({ user, version: getPrivacyPolicyVersion() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/me/message-consent', authMiddleware, (req, res) => {
+  try {
+    if (!req.body.message_consent) {
+      return res.status(400).json({
+        error: 'Die Einwilligung zur Nachrichtenverarbeitung ist erforderlich.',
+      });
+    }
+    const user = recordMessageConsent(req.user.id, requestMeta(req));
+    res.json({
+      user,
+      version: getPrivacyPolicyVersion(),
+      message_privacy: getMessagePrivacyInfo(),
+    });
   } catch (error) {
     sendError(res, error);
   }
@@ -563,6 +590,20 @@ app.use((err, _req, res, _next) => {
 
 if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
 
+function runRetentionCleanup() {
+  try {
+    const result = purgeExpiredMessagesByRetention();
+    for (const url of result.media_urls || []) unlinkUpload(url);
+    if (result.deleted_count > 0) {
+      console.log(`DSGVO-Retention: ${result.deleted_count} Nachrichten bereinigt`);
+    }
+  } catch (error) {
+    console.error('Retention-Cleanup fehlgeschlagen', error);
+  }
+}
+
 httpServer.listen(PORT, () => {
   console.log(`Relay Messenger läuft auf http://localhost:${PORT}`);
+  runRetentionCleanup();
+  setInterval(runRetentionCleanup, 60 * 60 * 1000);
 });
