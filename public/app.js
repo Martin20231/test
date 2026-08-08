@@ -1,947 +1,1873 @@
-import { productImageHtml } from './productImages.js';
+import {
+  ensureIdentity,
+  clearIdentity,
+  encryptTextForRecipients,
+  decryptTextPayload,
+  encryptBytesForRecipients,
+  decryptMediaBytes,
+  isE2EPayload,
+} from './e2e.js';
 
-function resolveApiBase() {
-  const configured = window.APP_CONFIG?.API_BASE?.trim();
-  if (configured) return configured.replace(/\/$/, '');
-
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-    return '/api';
-  }
-
-  return '';
-}
-
-const API = resolveApiBase();
-const DEMO_MODE = !API;
+const TOKEN_KEY = 'relay_token';
+const REACTIONS = ['❤️', '👍', '😂', '😮', '😢', '🔥'];
 
 const state = {
-  stores: [],
-  products: [],
-  uploadedFile: null,
-  detectedItems: [],
-  selectedStoreId: null,
-  priceChart: null,
-  selectedProduct: null,
-  checkerStoreId: null,
-  checkerCategory: 'all',
-  productPricesByStore: new Map(),
+  token: localStorage.getItem(TOKEN_KEY),
+  user: null,
+  socket: null,
+  conversations: [],
+  users: [],
+  statuses: [],
+  onlineIds: new Set(),
+  lastSeen: new Map(),
+  activeConversationId: null,
+  messages: [],
+  typingTimeout: null,
+  peerTyping: false,
+  typingName: '',
+  search: '',
+  replyTo: null,
+  openReactionFor: null,
+  openMsgMenu: null,
+  selectedGroupMembers: new Set(),
+  mediaRecorder: null,
+  voiceChunks: [],
+  voiceStartedAt: 0,
+  voiceTimer: null,
+  e2e: null,
+  mediaObjectUrls: new Map(),
 };
-
-// ── DOM References ──────────────────────────────────────────
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
 
 const els = {
-  toast: $('#toast'),
-  dropZone: $('#drop-zone'),
-  fileInput: $('#file-input'),
-  dropPlaceholder: $('#drop-placeholder'),
-  previewImage: $('#preview-image'),
-  scanOverlay: $('#scan-overlay'),
-  storeSelect: $('#store-select'),
-  btnAnalyze: $('#btn-analyze'),
-  btnSave: $('#btn-save'),
-  analyzeStatus: $('#analyze-status'),
-  resultsEmpty: $('#results-empty'),
-  resultsTableWrap: $('#results-table-wrap'),
-  resultsTbody: $('#results-tbody'),
-  resultsTotal: $('#results-total'),
-  productGrid: $('#product-grid'),
-  productGridCount: $('#product-grid-count'),
-  checkerStoreChips: $('#checker-store-chips'),
-  checkerCategoryChips: $('#checker-category-chips'),
-  checkerHint: $('#checker-hint'),
-  chartEmpty: $('#chart-empty'),
-  chartPanel: $('#chart-panel'),
-  chartProductName: $('#chart-product-name'),
-  chartMeta: $('#chart-meta'),
-  chartStats: $('#chart-stats'),
-  chartProductImage: $('#chart-product-image'),
-  priceChart: $('#price-chart'),
-  optimizerLoading: $('#optimizer-loading'),
-  optimizerEmpty: $('#optimizer-empty'),
-  optimizerContent: $('#optimizer-content'),
-  optimizerSummary: $('#optimizer-summary'),
-  optimizerCards: $('#optimizer-cards'),
-  lookupLoading: $('#lookup-loading'),
-  lookupPanel: $('#lookup-panel'),
-  lookupDisclaimer: $('#lookup-disclaimer'),
-  lookupComparisons: $('#lookup-comparisons'),
-  lookupInternetList: $('#lookup-internet-list'),
-  lookupInternetTbody: $('#lookup-internet-tbody'),
+  authScreen: document.getElementById('auth-screen'),
+  appScreen: document.getElementById('app-screen'),
+  loginForm: document.getElementById('login-form'),
+  registerForm: document.getElementById('register-form'),
+  authError: document.getElementById('auth-error'),
+  authTabs: document.querySelectorAll('.auth-tab'),
+  meAvatar: document.getElementById('me-avatar'),
+  meName: document.getElementById('me-name'),
+  conversationList: document.getElementById('conversation-list'),
+  chatSearch: document.getElementById('chat-search'),
+  emptyState: document.getElementById('empty-state'),
+  activeChat: document.getElementById('active-chat'),
+  peerAvatar: document.getElementById('peer-avatar'),
+  peerName: document.getElementById('peer-name'),
+  peerMeta: document.getElementById('peer-meta'),
+  messageList: document.getElementById('message-list'),
+  typingIndicator: document.getElementById('typing-indicator'),
+  composer: document.getElementById('composer'),
+  messageInput: document.getElementById('message-input'),
+  btnAttach: document.getElementById('btn-attach'),
+  btnPoll: document.getElementById('btn-poll'),
+  imageInput: document.getElementById('image-input'),
+  btnVoice: document.getElementById('btn-voice'),
+  voiceBar: document.getElementById('voice-bar'),
+  voiceTimer: document.getElementById('voice-timer'),
+  btnVoiceCancel: document.getElementById('btn-voice-cancel'),
+  btnVoiceSend: document.getElementById('btn-voice-send'),
+  pinRail: document.getElementById('pin-rail'),
+  pollDialog: document.getElementById('poll-dialog'),
+  pollForm: document.getElementById('poll-form'),
+  pollQuestion: document.getElementById('poll-question'),
+  btnClosePoll: document.getElementById('btn-close-poll'),
+  btnNewChat: document.getElementById('btn-new-chat'),
+  btnNewGroup: document.getElementById('btn-new-group'),
+  btnPrivacy: document.getElementById('btn-privacy'),
+  btnEmptyNew: document.getElementById('btn-empty-new'),
+  btnLogout: document.getElementById('btn-logout'),
+  btnMenu: document.getElementById('btn-menu'),
+  btnMenuClose: document.getElementById('btn-menu-close'),
+  appMenu: document.getElementById('app-menu'),
+  menuBackdrop: document.getElementById('menu-backdrop'),
+  menuUserName: document.getElementById('menu-user-name'),
+  btnBack: document.getElementById('btn-back'),
+  newChatDialog: document.getElementById('new-chat-dialog'),
+  contactList: document.getElementById('contact-list'),
+  newGroupDialog: document.getElementById('new-group-dialog'),
+  newGroupForm: document.getElementById('new-group-form'),
+  groupContactList: document.getElementById('group-contact-list'),
+  groupTitle: document.getElementById('group-title'),
+  btnCloseGroup: document.getElementById('btn-close-group'),
+  privacyDialog: document.getElementById('privacy-dialog'),
+  privacyLastSeen: document.getElementById('privacy-last-seen'),
+  privacyRetention: document.getElementById('privacy-retention'),
+  privacyRestrict: document.getElementById('privacy-restrict'),
+  consentStatus: document.getElementById('consent-status'),
+  btnRevokeMessages: document.getElementById('btn-revoke-messages'),
+  btnRevokeMedia: document.getElementById('btn-revoke-media'),
+  btnRevokeImpulses: document.getElementById('btn-revoke-impulses'),
+  btnGrantMessages: document.getElementById('btn-grant-messages'),
+  btnGrantMedia: document.getElementById('btn-grant-media'),
+  btnGrantImpulses: document.getElementById('btn-grant-impulses'),
+  btnExportData: document.getElementById('btn-export-data'),
+  btnDeleteAccount: document.getElementById('btn-delete-account'),
+  messageConsentDialog: document.getElementById('message-consent-dialog'),
+  messageConsentForm: document.getElementById('message-consent-form'),
+  messageConsentCheck: document.getElementById('message-consent-check'),
+  storageBanner: document.getElementById('storage-banner'),
+  btnAcceptStorage: document.getElementById('btn-accept-storage'),
+  replyBar: document.getElementById('reply-bar'),
+  replyBarName: document.getElementById('reply-bar-name'),
+  replyBarBody: document.getElementById('reply-bar-body'),
+  btnCancelReply: document.getElementById('btn-cancel-reply'),
+  statusList: document.getElementById('status-list'),
+  btnAddStatus: document.getElementById('btn-add-status'),
+  statusDialog: document.getElementById('status-dialog'),
+  statusForm: document.getElementById('status-form'),
+  statusText: document.getElementById('status-text'),
+  statusImage: document.getElementById('status-image'),
+  btnCloseStatus: document.getElementById('btn-close-status'),
+  statusViewer: document.getElementById('status-viewer'),
+  statusViewerMedia: document.getElementById('status-viewer-media'),
+  statusViewerName: document.getElementById('status-viewer-name'),
+  statusViewerTime: document.getElementById('status-viewer-time'),
+  statusViewerBody: document.getElementById('status-viewer-body'),
+  btnCloseViewer: document.getElementById('btn-close-viewer'),
+  toast: document.getElementById('toast'),
 };
 
-// ── API Helpers ─────────────────────────────────────────────
-async function api(path, options = {}) {
-  if (DEMO_MODE) {
-    const { demoApi } = await import('./demoApi.js');
-    return demoApi(path, options);
+function initials(name = '') {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('');
+}
+
+function setAvatar(el, userOrColor, name, { online = false } = {}) {
+  const color = typeof userOrColor === 'string' ? userOrColor : userOrColor?.avatar_color;
+  const label = name || userOrColor?.display_name || userOrColor?.username || '?';
+  if (!color) return;
+  el.textContent = initials(label);
+  el.style.background = `linear-gradient(145deg, ${color}, color-mix(in srgb, ${color} 65%, #041f1d))`;
+  el.classList.toggle('is-online', online);
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatListTime(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return formatTime(iso);
+  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+}
+
+function formatLastSeen(iso, { hidden = false } = {}) {
+  if (hidden) return 'zuletzt gesehen ausgeblendet';
+  if (!iso) return 'zuletzt gesehen vor Kurzem';
+  const date = new Date(iso);
+  const now = new Date();
+  const diffMin = Math.round((now - date) / 60000);
+  if (diffMin < 1) return 'zuletzt gesehen gerade eben';
+  if (diffMin < 60) return `zuletzt gesehen vor ${diffMin} Min.`;
+  if (date.toDateString() === now.toDateString()) {
+    return `zuletzt gesehen heute um ${formatTime(iso)}`;
   }
-  const res = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
+  return `zuletzt gesehen ${date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} ${formatTime(iso)}`;
+}
+
+function maybeShowStorageBanner() {
+  if (localStorage.getItem('relay_storage_notice') === '1') return;
+  els.storageBanner.classList.remove('is-hidden');
+}
+
+function ensureMessageConsent() {
+  if (state.user?.processing_restricted) {
+    showToast('Verarbeitung ist pausiert');
+    return false;
+  }
+  if (state.user?.has_message_consent || state.user?.message_consent_at) return true;
+  els.messageConsentCheck.checked = false;
+  if (!els.messageConsentDialog.open) els.messageConsentDialog.showModal();
+  return false;
+}
+
+function ensureMediaConsent() {
+  if (state.user?.processing_restricted) {
+    showToast('Verarbeitung ist pausiert');
+    return false;
+  }
+  if (state.user?.has_media_consent || state.user?.media_consent_at) return true;
+  showToast('Medien-Einwilligung fehlt — unter Privatsphäre erteilen');
+  return false;
+}
+
+function ensureImpulseConsent() {
+  if (state.user?.processing_restricted) {
+    showToast('Verarbeitung ist pausiert');
+    return false;
+  }
+  if (state.user?.has_impulse_consent || state.user?.impulse_consent_at) return true;
+  showToast('Status-Einwilligung fehlt — unter Privatsphäre erteilen');
+  return false;
+}
+
+function renderConsentStatus() {
+  if (!els.consentStatus) return;
+  const u = state.user || {};
+  const row = (label, ok) =>
+    `<div class="consent-chip ${ok ? 'is-on' : 'is-off'}">${label}: ${ok ? 'aktiv' : 'widerrufen'}</div>`;
+  els.consentStatus.innerHTML = [
+    row('Nachrichten', Boolean(u.has_message_consent || u.message_consent_at)),
+    row('Medien', Boolean(u.has_media_consent || u.media_consent_at)),
+    row('Status', Boolean(u.has_impulse_consent || u.impulse_consent_at)),
+    u.processing_restricted ? row('Pausiert', true) : '',
+  ].join('');
+}
+
+function openPrivacyDialog() {
+  els.privacyLastSeen.checked = Boolean(state.user?.show_last_seen);
+  els.privacyRetention.value = String(state.user?.message_retention_days || 30);
+  if (els.privacyRestrict) {
+    els.privacyRestrict.checked = Boolean(state.user?.processing_restricted);
+  }
+  renderConsentStatus();
+  els.privacyDialog.showModal();
+}
+
+async function grantScope(kind) {
+  try {
+    const endpoints = {
+      messages: ['/api/me/message-consent', { message_consent: true }],
+      media: ['/api/me/media-consent', { media_consent: true }],
+      impulses: ['/api/me/impulse-consent', { impulse_consent: true }],
+    };
+    const labels = { messages: 'Nachrichten', media: 'Medien', impulses: 'Status' };
+    const [url, body] = endpoints[kind];
+    const data = await api(url, { method: 'POST', body });
+    state.user = data.user;
+    renderConsentStatus();
+    showToast(`Einwilligung erteilt: ${labels[kind] || kind}`);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function revokeScope(scope) {
+  try {
+    const labels = { messages: 'Nachrichten', media: 'Medien', impulses: 'Status' };
+    const data = await api('/api/me/consent/revoke', {
+      method: 'POST',
+      body: { scope },
+    });
+    state.user = data.user;
+    renderConsentStatus();
+    showToast(`Einwilligung widerrufen: ${labels[scope] || scope}`);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function formatDuration(ms = 0) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function dayLabel(iso) {
+  const date = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return 'Heute';
+  if (date.toDateString() === yesterday.toDateString()) return 'Gestern';
+  return date.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function showToast(message) {
+  els.toast.textContent = message;
+  els.toast.classList.remove('is-hidden');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => els.toast.classList.add('is-hidden'), 2200);
+}
+
+async function setupE2E(user) {
+  const identity = await ensureIdentity(user.id);
+  state.e2e = identity;
+  if (!user.has_e2e_key) {
+    const data = await api('/api/me/public-key', {
+      method: 'PUT',
+      body: { public_key: identity.publicKeyJwk },
+    });
+    state.user = data.user;
+  } else {
+    // keep local key; re-upload to sync if server key missing mismatch is ok for demo
+    await api('/api/me/public-key', {
+      method: 'PUT',
+      body: { public_key: identity.publicKeyJwk },
+    }).catch(() => {});
+  }
+}
+
+async function recipientsForConversation(conversationId) {
+  const data = await api(`/api/conversations/${conversationId}/keys`);
+  const members = data.members || [];
+  const missing = members.filter((m) => !m.public_key);
+  if (missing.length) {
+    throw new Error(
+      `E2E nicht möglich: ${missing.map((m) => m.display_name || m.username).join(', ')} muss sich einmal anmelden (Schlüssel).`
+    );
+  }
+  return members.map((m) => ({ id: m.id, publicKeyJwk: m.public_key }));
+}
+
+async function decryptOneMessage(message) {
+  if (!message || message.deleted_at || !state.e2e || !state.user) return message;
+  const copy = { ...message };
+  if (message.reply_to) {
+    copy.reply_to = { ...message.reply_to };
+    if (message.reply_to.e2e && isE2EPayload(message.reply_to.body)) {
+      try {
+        const plain = await decryptTextPayload(
+          message.reply_to.body,
+          state.user.id,
+          state.e2e.privateKey
+        );
+        copy.reply_to.body =
+          message.reply_to.type === 'image'
+            ? plain || 'Bild'
+            : message.reply_to.type === 'audio'
+              ? 'Sprachnotiz'
+              : plain;
+        copy.reply_to.e2e = false;
+      } catch {
+        copy.reply_to.body = 'Verschlüsselt';
+      }
+    }
+  }
+
+  if (!(message.e2e && isE2EPayload(message.body))) return copy;
+
+  try {
+    if (message.type === 'image' || message.type === 'audio') {
+      copy._envelope = message.body;
+      copy.body = await decryptTextPayload(message.body, state.user.id, state.e2e.privateKey);
+      copy.e2e = false;
+      copy._encryptedMedia = true;
+    } else {
+      copy.body = await decryptTextPayload(message.body, state.user.id, state.e2e.privateKey);
+      copy.e2e = false;
+    }
+  } catch {
+    copy.body = 'Nicht entschlüsselbar (anderer Browser/Schlüssel?)';
+    copy.e2e_error = true;
+  }
+  return copy;
+}
+
+async function decryptMessages(messages) {
+  const out = [];
+  for (const message of messages || []) {
+    out.push(await decryptOneMessage(message));
+  }
+  return out;
+}
+
+function revokeMediaUrls() {
+  for (const url of state.mediaObjectUrls.values()) URL.revokeObjectURL(url);
+  state.mediaObjectUrls.clear();
+}
+
+async function resolveMediaUrl(message) {
+  if (!message?.media_url) return null;
+  if (!message._encryptedMedia || !message._envelope || !state.e2e) return message.media_url;
+  if (state.mediaObjectUrls.has(message.id)) return state.mediaObjectUrls.get(message.id);
+  const res = await fetch(message.media_url, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (!res.ok) throw new Error('Medien-Download fehlgeschlagen');
+  const buf = await res.arrayBuffer();
+  const decrypted = await decryptMediaBytes(
+    message._envelope,
+    buf,
+    state.user.id,
+    state.e2e.privateKey
+  );
+  const url = URL.createObjectURL(new Blob([decrypted.bytes], { type: decrypted.mime }));
+  state.mediaObjectUrls.set(message.id, url);
+  return url;
+}
+
+function showAuthError(message) {
+  els.authError.hidden = !message;
+  els.authError.textContent = message || '';
+}
+
+async function api(path, { method = 'GET', body, auth = true, formData } = {}) {
+  const headers = {};
+  if (auth && state.token) headers.Authorization = `Bearer ${state.token}`;
+  if (!formData) headers['Content-Type'] = 'application/json';
+
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: formData || (body ? JSON.stringify(body) : undefined),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Fehler ${res.status}`);
+  if (!res.ok) {
+    const error = new Error(data.error || 'Anfrage fehlgeschlagen.');
+    error.code = data.code;
+    throw error;
+  }
   return data;
 }
 
-// ── Toast ───────────────────────────────────────────────────
-function showToast(message, type = 'success') {
-  els.toast.textContent = message;
-  els.toast.className = `toast ${type}`;
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => {
-    els.toast.classList.add('hidden');
-  }, 3500);
+function conversationTitle(conversation) {
+  if (conversation.type === 'group') return conversation.title || 'Gruppe';
+  return conversation.peer?.display_name || 'Chat';
 }
 
-// ── Formatters ──────────────────────────────────────────────
-function formatPrice(price) {
-  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(price);
+function conversationSubtitle(conversation) {
+  if (conversation.type === 'group') return `${conversation.members?.length || 0} Mitglieder`;
+  return conversation.peer?.status || `@${conversation.peer?.username || ''}`;
 }
 
-function formatDate(dateStr) {
-  return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short', year: 'numeric' }).format(
-    new Date(dateStr)
-  );
-}
-
-function storeDotClass(name) {
-  const lower = name.toLowerCase();
-  if (lower.includes('lidl')) return 'lidl';
-  if (lower.includes('aldi')) return 'aldi';
-  if (lower.includes('rewe')) return 'rewe';
-  if (lower.includes('netto')) return 'netto';
-  if (lower.includes('edeka')) return 'edeka';
-  if (lower.includes('rossmann')) return 'rossmann';
-  return 'other';
-}
-
-// ── Navigation ──────────────────────────────────────────────
-function initNavigation() {
-  $$('.nav-tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-      const view = tab.dataset.view;
-      $$('.nav-tab').forEach((t) => {
-        t.classList.toggle('active', t === tab);
-        t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
-      });
-      $$('.view').forEach((v) => {
-        v.classList.add('hidden');
-        v.classList.remove('active');
-      });
-      const targetView = $(`#view-${view}`);
-      if (targetView) {
-        targetView.classList.remove('hidden');
-        targetView.classList.add('active');
-      }
-      if (view === 'optimizer') loadOptimizer();
-      if (view === 'checker') initCheckerBrowser();
-    });
-  });
-}
-
-// ── Init Data ───────────────────────────────────────────────
-async function loadInitialData() {
-  try {
-    const [storesRes, productsRes] = await Promise.all([
-      api('/stores'),
-      api('/products'),
-    ]);
-    state.stores = storesRes.stores?.length ? storesRes.stores : FALLBACK_STORES;
-    state.products = productsRes.products ?? [];
-    populateStoreSelect();
-    await loadCompareCache();
-  } catch (err) {
-    state.stores = FALLBACK_STORES;
-    showToast(`Daten konnten nicht geladen werden: ${err.message}`, 'error');
-  } finally {
-    initCheckerBrowser();
+function showApp() {
+  els.authScreen.classList.add('is-hidden');
+  els.appScreen.classList.remove('is-hidden');
+  setAvatar(els.meAvatar, state.user, null, { online: true });
+  els.meName.textContent = state.user.display_name;
+  if (els.menuUserName) {
+    els.menuUserName.textContent = state.user.display_name || state.user.username;
   }
 }
 
-function populateStoreSelect() {
-  els.storeSelect.innerHTML = '<option value="">Laden wählen…</option>';
-  for (const store of state.stores) {
-    const opt = document.createElement('option');
-    opt.value = store.id;
-    opt.textContent = store.name;
-    els.storeSelect.appendChild(opt);
-  }
+function showAuth() {
+  closeMenu();
+  els.appScreen.classList.add('is-hidden');
+  els.authScreen.classList.remove('is-hidden');
+  els.appScreen.classList.remove('show-chat');
 }
 
-// ── Upload / Drag & Drop ────────────────────────────────────
-function initUpload() {
-  els.dropZone.addEventListener('click', () => els.fileInput.click());
-
-  els.fileInput.addEventListener('change', (e) => {
-    if (e.target.files[0]) handleFile(e.target.files[0]);
-  });
-
-  ['dragenter', 'dragover'].forEach((evt) => {
-    els.dropZone.addEventListener(evt, (e) => {
-      e.preventDefault();
-      els.dropZone.classList.add('drag-over');
-    });
-  });
-
-  ['dragleave', 'drop'].forEach((evt) => {
-    els.dropZone.addEventListener(evt, (e) => {
-      e.preventDefault();
-      els.dropZone.classList.remove('drag-over');
-    });
-  });
-
-  els.dropZone.addEventListener('drop', (e) => {
-    const file = e.dataTransfer.files[0];
-    if (file?.type.startsWith('image/')) handleFile(file);
-  });
-
-  els.storeSelect.addEventListener('change', () => {
-    state.selectedStoreId = els.storeSelect.value ? Number(els.storeSelect.value) : null;
-    updateAnalyzeButton();
-  });
-
-  els.btnAnalyze.addEventListener('click', runAiAnalysis);
-  els.btnSave.addEventListener('click', saveReceipt);
+function openMenu() {
+  if (!els.appMenu || !els.btnMenu) return;
+  els.appMenu.classList.add('is-open');
+  els.appMenu.setAttribute('aria-hidden', 'false');
+  els.menuBackdrop?.classList.remove('is-hidden');
+  els.menuBackdrop?.removeAttribute('hidden');
+  requestAnimationFrame(() => els.menuBackdrop?.classList.add('is-open'));
+  els.btnMenu.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('menu-open');
 }
 
-function handleFile(file) {
-  state.uploadedFile = file;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    els.previewImage.src = e.target.result;
-    els.previewImage.classList.remove('hidden');
-    els.dropPlaceholder.classList.add('hidden');
-    els.dropZone.classList.add('has-image');
-    els.scanOverlay.classList.remove('hidden');
-    els.scanOverlay.classList.add('active');
-    updateAnalyzeButton();
-  };
-  reader.readAsDataURL(file);
-}
-
-function updateAnalyzeButton() {
-  els.btnAnalyze.disabled = !state.uploadedFile;
-}
-
-function setAnalyzeStatus(status, text) {
-  els.analyzeStatus.className = `status-badge ${status}`;
-  els.analyzeStatus.textContent = text;
-}
-
-async function runAiAnalysis() {
-  if (!state.uploadedFile) return;
-
-  els.btnAnalyze.disabled = true;
-  setAnalyzeStatus('scanning', 'Scannt Bon…');
-  els.scanOverlay.classList.add('active');
-
-  try {
-    const { analyzeReceipt } = await import('./receiptOcr.js');
-    const result = await analyzeReceipt(els.previewImage.src, state.products, (progress) => {
-      setAnalyzeStatus('scanning', `OCR ${Math.round(progress * 100)}%`);
-    });
-
-    if (result.detectedStore) {
-      const detected = state.stores.find(
-        (s) => s.name.toLowerCase() === result.detectedStore.toLowerCase()
-      );
-      if (detected) {
-        state.selectedStoreId = detected.id;
-        els.storeSelect.value = String(detected.id);
-        showToast(`Laden erkannt: ${detected.name}`);
-      }
+function closeMenu() {
+  if (!els.appMenu || !els.btnMenu) return;
+  els.appMenu.classList.remove('is-open');
+  els.appMenu.setAttribute('aria-hidden', 'true');
+  els.menuBackdrop?.classList.remove('is-open');
+  els.btnMenu.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('menu-open');
+  window.setTimeout(() => {
+    if (!els.appMenu.classList.contains('is-open')) {
+      els.menuBackdrop?.classList.add('is-hidden');
+      els.menuBackdrop?.setAttribute('hidden', '');
     }
-
-    if (!state.selectedStoreId) {
-      setAnalyzeStatus('idle', 'Laden wählen');
-      showToast('Laden konnte nicht erkannt werden – bitte manuell wählen.', 'error');
-      return;
-    }
-
-    const store = state.stores.find((s) => s.id === state.selectedStoreId);
-
-    if (result.items.length === 0) {
-      setAnalyzeStatus('idle', 'Keine Artikel');
-      showToast('Keine Produkte auf dem Bon erkannt. Bitte Foto prüfen.', 'error');
-      return;
-    }
-
-    state.detectedItems = result.items.map((item) => ({
-      product_id: item.product_id,
-      product_name: item.product_name,
-      ocr_name: item.ocr_name,
-      image_url: item.image_url,
-      store_name: store?.name,
-      price: item.price,
-      matched: item.matched,
-    }));
-
-    renderDetectedItems();
-    const matched = result.items.filter((i) => i.matched).length;
-    setAnalyzeStatus('done', `${result.items.length} Artikel`);
-    showToast(`${result.items.length} Artikel erkannt (${matched} im Katalog)`);
-  } catch (err) {
-    setAnalyzeStatus('idle', 'Fehler');
-    showToast(`Bon-Scan fehlgeschlagen: ${err.message}`, 'error');
-  } finally {
-    els.scanOverlay.classList.remove('active');
-    els.btnAnalyze.disabled = false;
-    updateAnalyzeButton();
-  }
+  }, 220);
 }
 
-function renderDetectedItems() {
-  els.resultsEmpty.classList.add('hidden');
-  els.resultsTableWrap.classList.remove('hidden');
-  els.resultsTbody.innerHTML = '';
-
-  let total = 0;
-  for (const item of state.detectedItems) {
-    total += item.price;
-    const tr = document.createElement('tr');
-    const nameHint =
-      item.ocr_name && item.ocr_name !== item.product_name
-        ? `<span class="ocr-hint" title="Bon-Text">${item.ocr_name}</span>`
-        : '';
-    const matchBadge = item.matched
-      ? ''
-      : '<span class="ocr-unmatched">Neu</span>';
-    tr.innerHTML = `
-      <td>
-        <div class="product-cell">
-          ${productImageHtml(item.image_url, item.product_name, '', 'sm')}
-          <div>
-            <span>${item.product_name}</span>
-            ${nameHint}
-            ${matchBadge}
-          </div>
-        </div>
-      </td>
-      <td>${item.store_name}</td>
-      <td class="text-right price-cell">${formatPrice(item.price)}</td>
-    `;
-    els.resultsTbody.appendChild(tr);
-  }
-  els.resultsTotal.textContent = formatPrice(total);
+function toggleMenu() {
+  if (els.appMenu?.classList.contains('is-open')) closeMenu();
+  else openMenu();
 }
 
-async function saveReceipt() {
-  if (state.detectedItems.length === 0) return;
+async function exportUserDataDownload() {
+  const res = await fetch('/api/me/export', {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Export fehlgeschlagen');
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `relay-datenexport-${state.user.username}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-  const total = state.detectedItems.reduce((sum, i) => sum + i.price, 0);
-  const today = new Date().toISOString().slice(0, 10);
-
+async function handleLogout() {
   try {
-    els.btnSave.disabled = true;
-    await api('/receipts', {
-      method: 'POST',
-      body: JSON.stringify({
-        store_id: state.selectedStoreId,
-        date: today,
-        total_price: +total.toFixed(2),
-        items: state.detectedItems.map((i) => ({
-          product_id: i.product_id,
-          product_name: i.product_name,
-          price: i.price,
-        })),
-      }),
-    });
-    showToast('Kassenbon erfolgreich gespeichert!');
-    resetUpload();
-    await loadInitialData();
-    await loadCompareCache();
-    renderProductGrid();
-  } catch (err) {
-    showToast(err.message, 'error');
-  } finally {
-    els.btnSave.disabled = false;
-  }
-}
-
-function resetUpload() {
-  state.uploadedFile = null;
-  state.detectedItems = [];
-  els.previewImage.classList.add('hidden');
-  els.previewImage.src = '';
-  els.dropPlaceholder.classList.remove('hidden');
-  els.dropZone.classList.remove('has-image');
-  els.scanOverlay.classList.add('hidden');
-  els.scanOverlay.classList.remove('active');
-  els.resultsEmpty.classList.remove('hidden');
-  els.resultsTableWrap.classList.add('hidden');
-  els.fileInput.value = '';
-  setAnalyzeStatus('idle', 'Bereit');
-  updateAnalyzeButton();
-}
-
-// ── Price Checker ───────────────────────────────────────────
-
-const FALLBACK_STORES = [
-  { id: 1, name: 'Lidl' },
-  { id: 2, name: 'Aldi' },
-  { id: 3, name: 'REWE' },
-  { id: 4, name: 'Netto' },
-  { id: 5, name: 'EDEKA' },
-  { id: 6, name: 'ROSSMANN' },
-];
-
-const CATEGORY_ICONS = {
-  'Milchprodukte': '🥛',
-  Backwaren: '🍞',
-  Getränke: '🥤',
-  'Obst & Gemüse': '🥬',
-  'Fleisch & Fisch': '🥩',
-  Grundnahrungsmittel: '🌾',
-  Tiefkühl: '❄️',
-  Süßigkeiten: '🍫',
-  'Haushalt & Drogerie': '🧴',
-  'Bon-Scan': '🧾',
-};
-
-async function loadCompareCache() {
-  try {
-    const data = await api('/compare');
-    state.productPricesByStore.clear();
-    for (const row of data.comparisons) {
-      state.productPricesByStore.set(row.product_id, row.stores);
-    }
+    await api('/api/auth/logout', { method: 'POST', body: {} });
   } catch {
-    // Vergleich optional
+    /* ignore */
+  }
+  state.socket?.disconnect();
+  state.socket = null;
+  state.token = null;
+  state.user = null;
+  state.e2e = null;
+  state.conversations = [];
+  state.activeConversationId = null;
+  revokeMediaUrls();
+  localStorage.removeItem(TOKEN_KEY);
+  showAuth();
+}
+
+async function handleMenuAction(action) {
+  closeMenu();
+  if (action === 'new-chat') {
+    await refreshUsers();
+    openNewChatDialog();
+    return;
+  }
+  if (action === 'new-group') {
+    await refreshUsers();
+    openNewGroupDialog();
+    return;
+  }
+  if (action === 'add-status') {
+    if (!ensureImpulseConsent()) return;
+    els.statusText.value = '';
+    els.statusImage.value = '';
+    els.statusDialog.showModal();
+    return;
+  }
+  if (action === 'privacy') {
+    openPrivacyDialog();
+    return;
+  }
+  if (action === 'export') {
+    try {
+      await exportUserDataDownload();
+      showToast('Datenexport gestartet');
+    } catch (error) {
+      showToast(error.message);
+    }
+    return;
+  }
+  if (action === 'logout') {
+    await handleLogout();
   }
 }
 
-function initCheckerBrowser() {
-  if (!els.checkerStoreChips) return;
+function connectSocket() {
+  if (state.socket) state.socket.disconnect();
+  state.socket = io({ auth: { token: state.token } });
 
-  if (state.checkerStoreId == null) {
-    state.checkerStoreId = 'all';
-  }
-
-  const stores = state.stores?.length ? state.stores : FALLBACK_STORES;
-  if (!state.stores?.length) state.stores = stores;
-
-  renderCheckerStoreChips(stores);
-  renderCheckerCategoryChips();
-  renderProductGrid();
-}
-
-function renderCheckerStoreChips(stores = state.stores) {
-  if (!els.checkerStoreChips) return;
-  els.checkerStoreChips.innerHTML = '';
-
-  const allBtn = document.createElement('button');
-  allBtn.type = 'button';
-  allBtn.className = `store-chip ${state.checkerStoreId === 'all' ? 'active' : ''}`;
-  allBtn.innerHTML = '<span class="store-dot other"></span> Alle';
-  allBtn.addEventListener('click', () => {
-    state.checkerStoreId = 'all';
-    renderCheckerStoreChips(stores);
-    renderProductGrid();
+  state.socket.on('presence:snapshot', ({ online_user_ids }) => {
+    state.onlineIds = new Set(online_user_ids || []);
+    renderConversationList();
+    renderActiveHeader();
   });
-  els.checkerStoreChips.appendChild(allBtn);
 
-  for (const store of stores) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `store-chip ${state.checkerStoreId === store.id ? 'active' : ''}`;
-    btn.innerHTML = `<span class="store-dot ${storeDotClass(store.name)}"></span> ${store.name}`;
-    btn.addEventListener('click', () => {
-      state.checkerStoreId = store.id;
-      renderCheckerStoreChips(stores);
-      renderProductGrid();
-    });
-    els.checkerStoreChips.appendChild(btn);
-  }
-}
-
-function renderCheckerCategoryChips() {
-  if (!els.checkerCategoryChips) return;
-  const categories = state.products.length
-    ? [...new Set(state.products.map((p) => p.category))].sort((a, b) => a.localeCompare(b, 'de'))
-    : [];
-
-  els.checkerCategoryChips.innerHTML = '';
-
-  const allBtn = document.createElement('button');
-  allBtn.type = 'button';
-  allBtn.className = `category-chip ${state.checkerCategory === 'all' ? 'active' : ''}`;
-  allBtn.textContent = 'Alle';
-  allBtn.addEventListener('click', () => {
-    state.checkerCategory = 'all';
-    renderCheckerCategoryChips();
-    renderProductGrid();
+  state.socket.on('presence:online', ({ user_id }) => {
+    state.onlineIds.add(user_id);
+    renderConversationList();
+    renderActiveHeader();
   });
-  els.checkerCategoryChips.appendChild(allBtn);
 
-  for (const category of categories) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `category-chip ${state.checkerCategory === category ? 'active' : ''}`;
-    btn.textContent = `${CATEGORY_ICONS[category] || '🛒'} ${category}`;
-    btn.addEventListener('click', () => {
-      state.checkerCategory = category;
-      renderCheckerCategoryChips();
-      renderProductGrid();
-    });
-    els.checkerCategoryChips.appendChild(btn);
+  state.socket.on('presence:offline', ({ user_id, last_seen_at }) => {
+    state.onlineIds.delete(user_id);
+    if (last_seen_at) state.lastSeen.set(user_id, last_seen_at);
+    const user = state.users.find((u) => u.id === user_id);
+    if (user) {
+      user.last_seen_at = last_seen_at;
+      if (last_seen_at == null) user.show_last_seen = false;
+    }
+    const conversation = state.conversations.find((c) => c.peer?.id === user_id);
+    if (conversation?.peer) {
+      conversation.peer.last_seen_at = last_seen_at;
+      if (last_seen_at == null) conversation.peer.show_last_seen = false;
+    }
+    renderConversationList();
+    renderActiveHeader();
+  });
+
+  state.socket.on('presence:privacy', ({ user_id, show_last_seen, last_seen_at }) => {
+    const user = state.users.find((u) => u.id === user_id);
+    if (user) {
+      user.show_last_seen = show_last_seen;
+      user.last_seen_at = last_seen_at;
+    }
+    const conversation = state.conversations.find((c) => c.peer?.id === user_id);
+    if (conversation?.peer) {
+      conversation.peer.show_last_seen = show_last_seen;
+      conversation.peer.last_seen_at = last_seen_at;
+    }
+    if (last_seen_at) state.lastSeen.set(user_id, last_seen_at);
+    renderActiveHeader();
+  });
+
+  state.socket.on('presence:status', ({ user_id, status }) => {
+    const user = state.users.find((u) => u.id === user_id);
+    if (user) user.status = status;
+    for (const conversation of state.conversations) {
+      if (conversation.peer?.id === user_id) conversation.peer.status = status;
+    }
+    renderConversationList();
+    renderActiveHeader();
+  });
+
+  state.socket.on('conversation:upsert', async () => {
+    await refreshConversations();
+  });
+
+  state.socket.on('status:new', async () => {
+    await refreshStatuses();
+  });
+
+  state.socket.on('conversation:pins', async ({ conversation_id }) => {
+    if (conversation_id !== state.activeConversationId) return;
+    const data = await api(`/api/conversations/${conversation_id}/messages`);
+    const conversation = state.conversations.find((c) => c.id === conversation_id);
+    if (conversation) conversation.pinned_messages = data.conversation.pinned_messages || [];
+    renderPins();
+  });
+
+  state.socket.on('message:new', async ({ message, conversation_id }) => {
+    const decrypted = await decryptOneMessage(message);
+    let existing = state.conversations.find((c) => c.id === conversation_id);
+    if (!existing) {
+      await refreshConversations();
+      existing = state.conversations.find((c) => c.id === conversation_id);
+    } else {
+      existing.last_message = previewFromMessage(decrypted);
+      if (state.activeConversationId !== conversation_id && decrypted.sender_id !== state.user.id) {
+        existing.unread_count = (existing.unread_count || 0) + 1;
+      }
+      state.conversations = [existing, ...state.conversations.filter((c) => c.id !== conversation_id)];
+      renderConversationList();
+    }
+
+    if (state.activeConversationId === conversation_id) {
+      upsertLocalMessage(decrypted);
+      if (decrypted.sender_id !== state.user.id) await markRead(conversation_id);
+    }
+  });
+
+  state.socket.on('message:updated', async ({ message }) => {
+    const decrypted = await decryptOneMessage(message);
+    if (state.activeConversationId === message.conversation_id) upsertLocalMessage(decrypted);
+    const conversation = state.conversations.find((c) => c.id === message.conversation_id);
+    if (conversation?.last_message?.id === message.id) {
+      conversation.last_message = previewFromMessage(decrypted);
+      renderConversationList();
+    }
+  });
+
+  state.socket.on('message:read', ({ conversation_id, message_ids, read_at }) => {
+    if (state.activeConversationId !== conversation_id) return;
+    const idSet = new Set(message_ids || []);
+    for (const message of state.messages) {
+      if (idSet.has(message.id)) {
+        message.read_at = read_at;
+        message.delivered_at = message.delivered_at || read_at;
+      }
+    }
+    renderMessages();
+  });
+
+  state.socket.on('typing:start', ({ conversation_id, user_id, display_name }) => {
+    if (conversation_id !== state.activeConversationId || user_id === state.user.id) return;
+    state.peerTyping = true;
+    state.typingName = display_name || 'Jemand';
+    els.typingIndicator.classList.remove('is-hidden');
+    renderActiveHeader();
+  });
+
+  state.socket.on('typing:stop', ({ conversation_id, user_id }) => {
+    if (conversation_id !== state.activeConversationId || user_id === state.user.id) return;
+    state.peerTyping = false;
+    els.typingIndicator.classList.add('is-hidden');
+    renderActiveHeader();
+  });
+}
+
+function previewFromMessage(message) {
+  if (message.deleted_at) return { ...message, body: 'Nachricht gelöscht' };
+  if (message.type === 'image') return { ...message, body: message.body ? `Bild: ${message.body}` : 'Bild' };
+  if (message.type === 'audio') return { ...message, body: 'Sprachnotiz' };
+  if (message.type === 'poll') return { ...message, body: `Umfrage: ${message.body}` };
+  return message;
+}
+
+function upsertLocalMessage(message) {
+  const idx = state.messages.findIndex((m) => m.id === message.id);
+  if (idx >= 0) state.messages[idx] = message;
+  else state.messages.push(message);
+  renderMessages();
+  scrollMessagesToBottom();
+}
+
+async function bootstrapSession() {
+  if (!state.token) {
+    showAuth();
+    return;
+  }
+  try {
+    const me = await api('/api/me');
+    state.user = me.user;
+    state.onlineIds = new Set(me.online_user_ids || []);
+    await setupE2E(me.user);
+    showApp();
+    connectSocket();
+    await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
+    ensureMessageConsent();
+  } catch {
+    localStorage.removeItem(TOKEN_KEY);
+    state.token = null;
+    state.e2e = null;
+    showAuth();
   }
 }
 
-function getFilteredCheckerProducts() {
-  let products = state.products;
-  if (state.checkerCategory !== 'all') {
-    products = products.filter((p) => p.category === state.checkerCategory);
+async function refreshConversations() {
+  const data = await api('/api/conversations');
+  state.conversations = data.conversations || [];
+  renderConversationList();
+}
+
+async function refreshUsers() {
+  const data = await api('/api/users');
+  state.users = data.users || [];
+  state.onlineIds = new Set(data.online_user_ids || []);
+  for (const user of state.users) {
+    if (user.last_seen_at) state.lastSeen.set(user.id, user.last_seen_at);
   }
-  return products.sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 
-function getStorePriceForProduct(productId) {
-  if (state.checkerStoreId == null || state.checkerStoreId === 'all') return null;
-  const store = state.stores.find((s) => s.id === state.checkerStoreId);
-  if (!store) return null;
-  const prices = state.productPricesByStore.get(productId) || [];
-  const local = prices.find(
-    (p) => !p.is_internet && p.store_name.toLowerCase() === store.name.toLowerCase()
-  );
-  return local?.latest_price ?? null;
+async function refreshStatuses() {
+  const data = await api('/api/statuses');
+  state.statuses = data.statuses || [];
+  renderStatusList();
 }
 
-function renderProductGrid() {
-  if (!els.productGrid) return;
+function renderStatusList() {
+  const byUser = new Map();
+  for (const status of state.statuses) {
+    if (!byUser.has(status.user_id)) byUser.set(status.user_id, []);
+    byUser.get(status.user_id).push(status);
+  }
 
-  const hasProducts = state.products.length > 0;
-  els.checkerHint.classList.toggle('hidden', hasProducts);
-  els.productGrid.classList.toggle('hidden', !hasProducts);
+  const chips = [];
+  for (const [userId, list] of byUser) {
+    const latest = list[0];
+    const unseen = list.some((s) => !s.viewed && s.user_id !== state.user.id);
+    chips.push(`
+      <button type="button" class="status-chip" data-user="${userId}">
+        <span class="status-avatar ${unseen ? 'has-new' : ''}" style="background:linear-gradient(145deg, ${latest.user.avatar_color}, color-mix(in srgb, ${latest.user.avatar_color} 65%, #152238))">${initials(latest.user.display_name)}</span>
+        <span class="status-label">${escapeHtml(userId === state.user.id ? 'Du' : latest.user.display_name.split(' ')[0])}</span>
+      </button>`);
+  }
 
-  if (!hasProducts) {
-    els.checkerHint.textContent = 'Produkte werden geladen…';
-    els.productGridCount.textContent = '';
-    els.productGrid.innerHTML = '';
+  els.statusList.innerHTML = chips.join('') || '<span style="color:var(--muted);font-size:0.85rem;padding:8px 0;">Noch kein Status</span>';
+  els.statusList.querySelectorAll('.status-chip').forEach((btn) => {
+    btn.addEventListener('click', () => openStatusViewer(btn.dataset.user));
+  });
+}
+
+async function openStatusViewer(userId) {
+  const list = state.statuses.filter((s) => s.user_id === userId);
+  if (!list.length) return;
+  const status = list[0];
+
+  els.statusViewerName.textContent = status.user.display_name;
+  els.statusViewerTime.textContent = formatListTime(status.created_at);
+  els.statusViewerBody.textContent = status.body || '';
+
+  if (status.type === 'image' && status.media_url) {
+    els.statusViewerMedia.innerHTML = `<img src="${status.media_url}" alt="" />`;
+  } else {
+    els.statusViewerMedia.innerHTML = `<div>${escapeHtml(status.body || '')}</div>`;
+  }
+
+  els.statusViewer.showModal();
+  if (status.user_id !== state.user.id) {
+    try {
+      await api(`/api/statuses/${status.id}/view`, { method: 'POST', body: {} });
+      await refreshStatuses();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function renderConversationList() {
+  const query = state.search.trim().toLowerCase();
+  const items = state.conversations.filter((c) => {
+    if (!query) return true;
+    const hay = `${conversationTitle(c)} ${c.last_message?.body || ''}`.toLowerCase();
+    return hay.includes(query);
+  });
+
+  if (!items.length) {
+    els.conversationList.innerHTML = `
+      <div style="padding:24px 14px;color:var(--muted);text-align:center;font-size:0.92rem;">
+        ${query ? 'Keine Treffer.' : 'Noch keine Chats'}
+      </div>`;
     return;
   }
 
-  const products = getFilteredCheckerProducts();
-  const storeName =
-    state.checkerStoreId === 'all'
-      ? 'allen Märkten'
-      : state.stores.find((s) => s.id === state.checkerStoreId)?.name ?? '';
+  els.conversationList.innerHTML = items
+    .map((conversation) => {
+      const isGroup = conversation.type === 'group';
+      const online = !isGroup && state.onlineIds.has(conversation.peer?.id);
+      const color = isGroup ? '#0f766e' : conversation.peer?.avatar_color || '#0D7377';
+      const name = conversationTitle(conversation);
+      const preview = conversation.last_message?.body || 'Noch keine Nachrichten';
+      const time = formatListTime(conversation.last_message?.created_at || conversation.created_at);
+      const unread =
+        conversation.unread_count > 0
+          ? `<span class="unread-badge">${conversation.unread_count}</span>`
+          : '';
+      const tag = isGroup ? '<span class="group-tag">Gruppe</span>' : '';
+      return `
+        <button type="button" class="chat-item ${conversation.id === state.activeConversationId ? 'is-active' : ''}" data-id="${conversation.id}" role="listitem">
+          <div class="avatar ${online ? 'is-online' : ''}" style="background:linear-gradient(145deg, ${color}, color-mix(in srgb, ${color} 65%, #152238))">${initials(name)}</div>
+          <div class="chat-item-main">
+            <div class="chat-item-name">${escapeHtml(name)}${tag}</div>
+            <div class="chat-item-preview">${escapeHtml(preview)}</div>
+          </div>
+          <div class="chat-item-meta">
+            <span class="chat-time">${time}</span>
+            ${unread}
+          </div>
+        </button>`;
+    })
+    .join('');
 
-  els.productGridCount.textContent = `${products.length} Produkte · ${storeName}${
-    state.checkerCategory !== 'all' ? ` · ${state.checkerCategory}` : ''
-  }`;
+  els.conversationList.querySelectorAll('.chat-item').forEach((btn) => {
+    btn.addEventListener('click', () => openConversation(btn.dataset.id));
+  });
+}
 
-  els.productGrid.innerHTML = '';
-  for (const product of products) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'product-grid-card';
-    if (state.selectedProduct?.id === product.id) btn.classList.add('selected');
+async function openConversation(conversationId) {
+  state.openMsgMenu = null;
+  state.activeConversationId = conversationId;
+  state.peerTyping = false;
+  state.replyTo = null;
+  state.openReactionFor = null;
+  revokeMediaUrls();
+  updateReplyBar();
+  els.typingIndicator.classList.add('is-hidden');
+  els.appScreen.classList.add('show-chat');
 
-    const storePrice = getStorePriceForProduct(product.id);
-    const priceHtml = storePrice
-      ? `<span class="product-grid-store-price">${formatPrice(storePrice)}</span>`
-      : product.rewe_price
-        ? `<span class="product-grid-rewe-price">REWE ${formatPrice(product.rewe_price)}</span>`
+  const data = await api(`/api/conversations/${conversationId}/messages`);
+  const conversation = data.conversation;
+  const idx = state.conversations.findIndex((c) => c.id === conversationId);
+  if (idx >= 0) state.conversations[idx] = { ...state.conversations[idx], ...conversation, unread_count: 0 };
+  else state.conversations.unshift(conversation);
+
+  state.messages = await decryptMessages(data.messages || []);
+  els.emptyState.classList.add('is-hidden');
+  els.activeChat.classList.remove('is-hidden');
+  renderActiveHeader();
+  renderPins();
+  renderMessages();
+  renderConversationList();
+  await markRead(conversationId);
+  els.messageInput.focus();
+}
+
+function renderPins() {
+  const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
+  const pins = conversation?.pinned_messages || [];
+  if (!pins.length) {
+    els.pinRail.classList.add('is-hidden');
+    els.pinRail.innerHTML = '';
+    return;
+  }
+  els.pinRail.classList.remove('is-hidden');
+  els.pinRail.innerHTML = pins
+    .map(
+      (pin) => `
+      <button type="button" class="pin-chip" data-pin="${pin.id}">
+        <strong>Angeheftet</strong>
+        <span>${escapeHtml(pin.type === 'poll' ? `Umfrage: ${pin.body}` : pin.body || pin.type)}</span>
+      </button>`
+    )
+    .join('');
+  els.pinRail.querySelectorAll('.pin-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = els.messageList.querySelector(`[data-id="${btn.dataset.pin}"]`);
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+}
+
+function renderActiveHeader() {
+  const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
+  if (!conversation) return;
+
+  const isGroup = conversation.type === 'group';
+  const online = !isGroup && state.onlineIds.has(conversation.peer?.id);
+  const title = conversationTitle(conversation);
+  const color = isGroup ? '#0f766e' : conversation.peer?.avatar_color;
+
+  setAvatar(els.peerAvatar, color, title, { online });
+  els.peerName.textContent = title;
+
+  if (state.peerTyping) {
+    els.peerMeta.textContent = isGroup ? `${state.typingName} schreibt…` : 'schreibt…';
+  } else if (isGroup) {
+    els.peerMeta.textContent = conversationSubtitle(conversation);
+  } else if (online) {
+    els.peerMeta.textContent = conversation.peer?.status
+      ? `online · ${conversation.peer.status}`
+      : 'online';
+  } else {
+    const hidden = conversation.peer?.show_last_seen === false;
+    const lastSeen = conversation.peer?.last_seen_at || state.lastSeen.get(conversation.peer?.id);
+    els.peerMeta.textContent = formatLastSeen(lastSeen, { hidden });
+  }
+}
+
+function ticksFor(message) {
+  if (message.sender_id !== state.user.id || message.deleted_at) return '';
+  if (message.read_at) return '<span class="delivery is-read">gelesen</span>';
+  if (message.delivered_at) return '<span class="delivery">angekommen</span>';
+  return '<span class="delivery">unterwegs</span>';
+}
+
+function pollHtml(message) {
+  if (message.type !== 'poll' || !message.poll || message.deleted_at) return '';
+  const options = message.poll.options
+    .map(
+      (option) => `
+      <button type="button" class="poll-option-btn ${message.poll.my_vote === option.id ? 'is-mine' : ''}" data-vote="${message.id}" data-option="${option.id}">
+        <span class="poll-option-fill" style="width:${option.percent}%"></span>
+        <span class="poll-option-label"><span>${escapeHtml(option.label)}</span><span>${option.votes}</span></span>
+      </button>`
+    )
+    .join('');
+  return `<div class="poll-card"><strong>${escapeHtml(message.body)}</strong>${options}<div style="font-size:0.75rem;color:var(--muted)">${message.poll.total_votes} Stimmen</div></div>`;
+}
+
+function reactionSummary(message) {
+  const counts = new Map();
+  for (const reaction of message.reactions || []) {
+    counts.set(reaction.emoji, (counts.get(reaction.emoji) || 0) + 1);
+  }
+  if (!counts.size) return '';
+  return `<div class="reactions">${[...counts.entries()]
+    .map(([emoji, count]) => {
+      const mine = (message.reactions || []).some(
+        (r) => r.emoji === emoji && r.user_id === state.user.id
+      );
+      return `<button type="button" class="reaction-chip ${mine ? 'is-mine' : ''}" data-react="${message.id}" data-emoji="${emoji}">${emoji} ${count}</button>`;
+    })
+    .join('')}</div>`;
+}
+
+function mediaHtml(message) {
+  if (message.deleted_at) return '';
+  if (message.type === 'image' && message.media_url) {
+    const src = message._resolvedMediaUrl || '';
+    if (!src && message._encryptedMedia) {
+      return `<div class="bubble-media-loading" data-media-id="${message.id}">Bild wird entschlüsselt…</div>`;
+    }
+    return `<img class="bubble-media" src="${src || message.media_url}" alt="Foto" data-lightbox="${src || message.media_url}" />`;
+  }
+  if (message.type === 'audio' && message.media_url) {
+    const src = message._resolvedMediaUrl || '';
+    if (!src && message._encryptedMedia) {
+      return `<div class="audio-msg" data-media-id="${message.id}">Sprachnotiz wird entschlüsselt…</div>`;
+    }
+    return `<div class="audio-msg">
+      <audio controls preload="metadata" src="${src || message.media_url}"></audio>
+      <span class="audio-duration">${formatDuration(message.media_duration_ms || 0)}</span>
+    </div>`;
+  }
+  return '';
+}
+
+function renderMessages() {
+  const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
+  const isGroup = conversation?.type === 'group';
+  els.messageList.innerHTML = '';
+  let lastDay = '';
+
+  for (const message of state.messages) {
+    const day = dayLabel(message.created_at);
+    if (day !== lastDay) {
+      const sep = document.createElement('div');
+      sep.className = 'day-separator';
+      sep.textContent = day;
+      els.messageList.appendChild(sep);
+      lastDay = day;
+    }
+
+    const mine = message.sender_id === state.user.id;
+    const deleted = Boolean(message.deleted_at);
+    const row = document.createElement('div');
+    row.className = `message-row ${mine ? 'is-mine' : ''}`;
+    row.dataset.id = message.id;
+
+    const replyHtml = message.reply_to
+      ? `<div class="bubble-reply"><strong>${escapeHtml(message.reply_to.sender_name || 'Nachricht')}</strong><span>${escapeHtml(message.reply_to.body)}</span></div>`
+      : '';
+
+    const senderHtml =
+      isGroup && !mine && !deleted
+        ? `<div class="bubble-sender">${escapeHtml(message.sender_name || '')}</div>`
         : '';
 
-    btn.innerHTML = `
-      ${productImageHtml(product.image_url, product.name, product.category, 'md')}
-      <span class="product-grid-name">${product.name}</span>
-      ${priceHtml}
-    `;
-    btn.addEventListener('click', () => selectProduct(product));
-    els.productGrid.appendChild(btn);
-  }
-}
+    const body = deleted
+      ? 'Diese Nachricht wurde gelöscht'
+      : message.body
+        ? escapeHtml(message.body)
+        : '';
+    const edited = message.edited_at && !deleted ? ' · bearbeitet' : '';
 
-async function selectProduct(product) {
-  state.selectedProduct = product;
-  renderProductGrid();
+    const menuOpen = state.openMsgMenu === message.id;
+    const actions = deleted
+      ? ''
+      : `<div class="msg-toolbar">
+          <button type="button" class="msg-more" data-msg-menu="${message.id}" aria-label="Nachrichtenmenü" aria-expanded="${menuOpen ? 'true' : 'false'}">⋯</button>
+          ${
+            menuOpen
+              ? `<div class="msg-menu" role="menu">
+                  <button type="button" data-reply="${message.id}">Antworten</button>
+                  <button type="button" data-react-open="${message.id}">Reagieren</button>
+                  <button type="button" data-pin="${message.id}">${message.pinned ? 'Anheften lösen' : 'Anheften'}</button>
+                  ${mine && message.type === 'text' ? `<button type="button" data-edit="${message.id}">Bearbeiten</button>` : ''}
+                  ${mine ? `<button type="button" class="is-danger" data-delete="${message.id}">Löschen</button>` : ''}
+                </div>`
+              : ''
+          }
+        </div>`;
 
-  els.chartEmpty.classList.add('hidden');
-  els.lookupPanel.classList.add('hidden');
-  els.lookupLoading.classList.remove('hidden');
+    const picker =
+      state.openReactionFor === message.id
+        ? `<div class="reaction-picker">${REACTIONS.map(
+            (emoji) => `<button type="button" data-react="${message.id}" data-emoji="${emoji}">${emoji}</button>`
+          ).join('')}</div>`
+        : '';
 
-  try {
-    const [historyData] = await Promise.all([
-      api(`/products/history/${product.id}`),
-      fetchPriceLookup(product.name),
-    ]);
-    renderPriceChart(historyData);
-  } catch (err) {
-    els.lookupLoading.classList.add('hidden');
-    showToast(err.message, 'error');
-  }
-}
-
-function hideLookupPanel() {
-  els.lookupLoading.classList.add('hidden');
-  els.lookupPanel.classList.add('hidden');
-}
-
-async function fetchPriceLookup(query) {
-  hideLookupPanel();
-  els.lookupLoading.classList.remove('hidden');
-
-  try {
-    const data = await api(`/prices/lookup?q=${encodeURIComponent(query)}`);
-    els.lookupLoading.classList.add('hidden');
-    renderPriceLookup(data);
-  } catch (err) {
-    els.lookupLoading.classList.add('hidden');
-    showToast(err.message, 'error');
-  }
-}
-
-function renderPriceLookup(data) {
-  els.lookupPanel.classList.remove('hidden');
-  els.lookupDisclaimer.textContent =
-    data.internet.disclaimer || 'Online-Preise können von Ladenpreisen abweichen.';
-
-  els.lookupComparisons.innerHTML = '';
-
-  if (data.comparisons.length === 0) {
-    els.lookupComparisons.innerHTML =
-      '<p class="text-sm text-slate-500">Keine Vergleichsdaten gefunden.</p>';
-  } else {
-    for (const item of data.comparisons) {
-      const card = document.createElement('div');
-      card.className = 'comparison-card';
-      const localHtml = item.local_prices?.length
-        ? item.local_prices
-            .map(
-              (s) =>
-                `<span class="local-price-tag">${s.store_name}: ${formatPrice(s.price)}</span>`
-            )
-            .join('')
-        : '<span class="text-slate-500 text-sm">Keine Bon-Daten</span>';
-
-      const internetHtml = item.internet_cheapest
-        ? `<span class="internet-price-tag">REWE Online: ${formatPrice(item.internet_cheapest.price)}</span>`
-        : data.internet.error
-          ? `<span class="text-slate-500 text-sm">${data.internet.error}</span>`
-          : '';
-
-      const imgUrl = item.local_image_url || item.internet_cheapest?.image_url;
-      card.innerHTML = `
-        <div class="comparison-card-header">
-          ${productImageHtml(imgUrl, item.local_product_name || data.query, '', 'md')}
-          <div class="comparison-card-title">${item.local_product_name || data.query}</div>
+    row.innerHTML = `
+      <div class="bubble ${deleted ? 'is-deleted' : ''}">
+        ${senderHtml}
+        ${replyHtml}
+        ${mediaHtml(message)}
+        ${pollHtml(message)}
+        ${body && message.type !== 'poll' ? `<div class="bubble-body">${body}</div>` : ''}
+        <div class="bubble-meta">
+          <span>${formatTime(message.created_at)}${edited}</span>
+          ${ticksFor(message)}
         </div>
-        <div class="comparison-card-prices">${localHtml} ${internetHtml}</div>
-        ${item.verdict ? `<p class="comparison-verdict">${item.verdict}</p>` : ''}
-      `;
-      els.lookupComparisons.appendChild(card);
+        ${reactionSummary(message)}
+        ${actions}
+        ${picker}
+      </div>`;
+
+    els.messageList.appendChild(row);
+  }
+
+  bindMessageActions();
+  scrollMessagesToBottom(false);
+  hydrateEncryptedMedia();
+}
+
+async function hydrateEncryptedMedia() {
+  for (const message of state.messages) {
+    if (!message._encryptedMedia || message._resolvedMediaUrl || !message.media_url) continue;
+    try {
+      const url = await resolveMediaUrl(message);
+      message._resolvedMediaUrl = url;
+      const nodes = els.messageList.querySelectorAll(`[data-media-id="${message.id}"]`);
+      nodes.forEach((node) => {
+        if (message.type === 'image') {
+          node.outerHTML = `<img class="bubble-media" src="${url}" alt="Foto" data-lightbox="${url}" />`;
+        } else if (message.type === 'audio') {
+          node.outerHTML = `<div class="audio-msg"><audio controls preload="metadata" src="${url}"></audio><span class="audio-duration">${formatDuration(message.media_duration_ms || 0)}</span></div>`;
+        }
+      });
+      els.messageList.querySelectorAll('[data-lightbox]').forEach((img) => {
+        if (img.dataset.bound) return;
+        img.dataset.bound = '1';
+        img.addEventListener('click', () => {
+          const overlay = document.createElement('div');
+          overlay.className = 'lightbox';
+          overlay.innerHTML = `<img src="${img.dataset.lightbox}" alt="" />`;
+          overlay.addEventListener('click', () => overlay.remove());
+          document.body.appendChild(overlay);
+        });
+      });
+    } catch {
+      const nodes = els.messageList.querySelectorAll(`[data-media-id="${message.id}"]`);
+      nodes.forEach((node) => {
+        node.textContent = 'Medien nicht entschlüsselbar';
+      });
     }
   }
+}
 
-  if (data.internet.products?.length) {
-    els.lookupInternetList.classList.remove('hidden');
-    els.lookupInternetTbody.innerHTML = data.internet.products
-      .map(
-        (p) => `
-      <tr>
-        <td>
-          <div class="product-cell">
-            ${productImageHtml(p.image_url, p.name, '', 'sm')}
-            <span>${p.name}</span>
-          </div>
-        </td>
-        <td class="text-slate-400">${p.grammage || '–'}</td>
-        <td class="text-right price-cell">${formatPrice(p.price)}</td>
-      </tr>
-    `
-      )
-      .join('');
-  } else {
-    els.lookupInternetList.classList.add('hidden');
-    els.lookupInternetTbody.innerHTML = '';
+function bindMessageActions() {
+  els.messageList.querySelectorAll('[data-lightbox]').forEach((img) => {
+    img.addEventListener('click', () => {
+      const overlay = document.createElement('div');
+      overlay.className = 'lightbox';
+      overlay.innerHTML = `<img src="${img.dataset.lightbox}" alt="" />`;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.appendChild(overlay);
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-vote]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const data = await api(`/api/messages/${btn.dataset.vote}/vote`, {
+          method: 'POST',
+          body: { option_id: btn.dataset.option },
+        });
+        upsertLocalMessage(await decryptOneMessage(data.message));
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-msg-menu]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const id = btn.dataset.msgMenu;
+      state.openMsgMenu = state.openMsgMenu === id ? null : id;
+      state.openReactionFor = null;
+      renderMessages();
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-pin]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const message = state.messages.find((m) => m.id === btn.dataset.pin);
+      if (!message) return;
+      state.openMsgMenu = null;
+      try {
+        const path = `/api/conversations/${state.activeConversationId}/pins/${message.id}`;
+        const data = message.pinned
+          ? await api(path, { method: 'DELETE' })
+          : await api(path, { method: 'POST', body: {} });
+        upsertLocalMessage(await decryptOneMessage(data.message));
+        const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
+        if (conversation) {
+          const fresh = await api(`/api/conversations/${state.activeConversationId}/messages`);
+          conversation.pinned_messages = await decryptMessages(fresh.conversation.pinned_messages || []);
+          renderPins();
+        }
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-reply]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const message = state.messages.find((m) => m.id === btn.dataset.reply);
+      if (!message || message.deleted_at) return;
+      state.openMsgMenu = null;
+      state.replyTo = message;
+      updateReplyBar();
+      els.messageInput.focus();
+      renderMessages();
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-react-open]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.openMsgMenu = null;
+      state.openReactionFor =
+        state.openReactionFor === btn.dataset.reactOpen ? null : btn.dataset.reactOpen;
+      renderMessages();
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-react]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const data = await api(`/api/messages/${btn.dataset.react}/reactions`, {
+          method: 'POST',
+          body: { emoji: btn.dataset.emoji },
+        });
+        state.openReactionFor = null;
+        upsertLocalMessage(await decryptOneMessage(data.message));
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-edit]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const message = state.messages.find((m) => m.id === btn.dataset.edit);
+      if (!message) return;
+      state.openMsgMenu = null;
+      const next = prompt('Nachricht bearbeiten', message.body);
+      if (next == null || !next.trim() || next.trim() === message.body) {
+        renderMessages();
+        return;
+      }
+      try {
+        const recipients = await recipientsForConversation(state.activeConversationId);
+        const encrypted = await encryptTextForRecipients(next.trim(), recipients);
+        const data = await api(`/api/messages/${message.id}`, {
+          method: 'PATCH',
+          body: { body: encrypted },
+        });
+        upsertLocalMessage(await decryptOneMessage(data.message));
+      } catch (error) {
+        showToast(error.message);
+        renderMessages();
+      }
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-delete]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Nachricht für alle löschen?')) return;
+      state.openMsgMenu = null;
+      try {
+        const data = await api(`/api/messages/${btn.dataset.delete}`, { method: 'DELETE' });
+        upsertLocalMessage(await decryptOneMessage(data.message));
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
+}
+
+function updateReplyBar() {
+  if (!state.replyTo) {
+    els.replyBar.classList.add('is-hidden');
+    return;
+  }
+  els.replyBar.classList.remove('is-hidden');
+  els.replyBarName.textContent =
+    state.replyTo.sender_name || (state.replyTo.sender_id === state.user.id ? 'Du' : 'Antwort');
+  els.replyBarBody.textContent =
+    state.replyTo.type === 'image'
+      ? 'Foto'
+      : state.replyTo.type === 'audio'
+        ? 'Sprachnachricht'
+        : state.replyTo.body;
+}
+
+function scrollMessagesToBottom(smooth = true) {
+  els.messageList.scrollTo({
+    top: els.messageList.scrollHeight,
+    behavior: smooth ? 'smooth' : 'auto',
+  });
+}
+
+async function markRead(conversationId) {
+  await api(`/api/conversations/${conversationId}/read`, { method: 'POST', body: {} });
+  const conversation = state.conversations.find((c) => c.id === conversationId);
+  if (conversation) conversation.unread_count = 0;
+  renderConversationList();
+}
+
+async function sendMessage(body) {
+  const conversationId = state.activeConversationId;
+  if (!conversationId || !body.trim()) return;
+  if (!ensureMessageConsent()) return;
+  if (!state.e2e) throw new Error('E2E-Schlüssel fehlen. Bitte neu anmelden.');
+
+  const recipients = await recipientsForConversation(conversationId);
+  const encrypted = await encryptTextForRecipients(body.trim(), recipients);
+  const payload = { body: encrypted };
+  if (state.replyTo) payload.reply_to_id = state.replyTo.id;
+
+  try {
+    const data = await api(`/api/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: payload,
+    });
+    const decrypted = await decryptOneMessage(data.message);
+
+    state.replyTo = null;
+    updateReplyBar();
+    upsertLocalMessage(decrypted);
+
+    const conversation = state.conversations.find((c) => c.id === conversationId);
+    if (conversation) {
+      conversation.last_message = previewFromMessage(decrypted);
+      state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
+      renderConversationList();
+    }
+
+    state.socket?.emit('typing:stop', { conversation_id: conversationId });
+  } catch (error) {
+    if (error.message?.includes('Einwilligung')) ensureMessageConsent();
+    throw error;
   }
 }
 
-function renderPriceChart(data) {
-  if (data.history.length === 0) {
-    els.chartPanel.classList.add('hidden');
-    els.chartEmpty.classList.remove('hidden');
-    els.chartEmpty.querySelector('p').textContent = 'Noch keine Bon-Daten für dieses Produkt';
-    const hint = els.chartEmpty.querySelector('.text-sm');
-    if (hint) hint.textContent = 'Online-Preise findest du unten im REWE-Vergleich';
+async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' } = {}) {
+  const conversationId = state.activeConversationId;
+  if (!conversationId || !file) return;
+  if (!ensureMessageConsent()) return;
+  if (!ensureMediaConsent()) return;
+  if (!state.e2e) throw new Error('E2E-Schlüssel fehlen. Bitte neu anmelden.');
+
+  const recipients = await recipientsForConversation(conversationId);
+  const bytes = await file.arrayBuffer();
+  const { envelope, blob } = await encryptBytesForRecipients(bytes, recipients, {
+    caption,
+    mime: file.type || 'application/octet-stream',
+  });
+
+  const formData = new FormData();
+  formData.append('file', blob, `e2e-${Date.now()}.bin`);
+  formData.append('body', envelope);
+  if (state.replyTo) formData.append('reply_to_id', state.replyTo.id);
+  if (durationMs != null) formData.append('media_duration_ms', String(durationMs));
+  if (typeHint) formData.append('type', typeHint);
+
+  try {
+    const data = await api(`/api/conversations/${conversationId}/media`, {
+      method: 'POST',
+      formData,
+    });
+    const decrypted = await decryptOneMessage(data.message);
+
+    state.replyTo = null;
+    updateReplyBar();
+    upsertLocalMessage(decrypted);
+
+    const conversation = state.conversations.find((c) => c.id === conversationId);
+    if (conversation) {
+      conversation.last_message = previewFromMessage(decrypted);
+      state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
+      renderConversationList();
+    }
+  } catch (error) {
+    if (error.message?.includes('Medien')) ensureMediaConsent();
+    else if (error.message?.includes('Einwilligung')) ensureMessageConsent();
+    throw error;
+  }
+}
+
+async function startVoiceRecording() {
+  if (!state.activeConversationId) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast('Mikrofon nicht verfügbar');
     return;
   }
 
-  els.chartEmpty.classList.add('hidden');
-  els.chartPanel.classList.remove('hidden');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : '';
+    state.mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    state.voiceChunks = [];
+    state.voiceStartedAt = Date.now();
 
-  if (els.chartProductImage) {
-    els.chartProductImage.innerHTML = productImageHtml(
-      data.image_url,
-      data.product_name,
-      data.category,
-      'lg'
-    );
-  }
-  els.chartProductName.textContent = data.product_name;
-  els.chartMeta.textContent = `${data.history.length} Preiseinträge`;
-
-  const prices = data.history.map((h) => h.price);
-  const first = prices[0];
-  const last = prices[prices.length - 1];
-  const change = first ? ((last - first) / first) * 100 : 0;
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-
-  els.chartStats.innerHTML = `
-    <div class="stat-pill">
-      <div class="stat-value">${formatPrice(last ?? 0)}</div>
-      <div class="stat-label">Aktuell</div>
-    </div>
-    <div class="stat-pill ${change > 0 ? 'negative' : ''}">
-      <div class="stat-value">${change >= 0 ? '+' : ''}${change.toFixed(1)}%</div>
-      <div class="stat-label">Veränderung</div>
-    </div>
-    <div class="stat-pill">
-      <div class="stat-value">${formatPrice(min)} – ${formatPrice(max)}</div>
-      <div class="stat-label">Spanne</div>
-    </div>
-  `;
-
-  const labels = [...new Set(data.history.map((h) => h.date))].sort();
-
-  const byStore = {};
-  for (const entry of data.history) {
-    if (!byStore[entry.store_name]) byStore[entry.store_name] = {};
-    byStore[entry.store_name][entry.date] = entry.price;
-  }
-
-  const storeColors = {};
-  const palette = ['#00ff9d', '#00d4ff', '#a78bfa', '#f472b6', '#fbbf24'];
-  let colorIdx = 0;
-
-  const datasets = Object.entries(byStore).map(([storeName, pricesByDate]) => {
-    if (!storeColors[storeName]) {
-      storeColors[storeName] = palette[colorIdx++ % palette.length];
-    }
-    return {
-      label: storeName,
-      data: labels.map((date) => pricesByDate[date] ?? null),
-      borderColor: storeColors[storeName],
-      backgroundColor: storeColors[storeName] + '22',
-      borderWidth: 2.5,
-      pointRadius: 5,
-      pointHoverRadius: 7,
-      pointBackgroundColor: storeColors[storeName],
-      tension: 0.35,
-      fill: true,
-      spanGaps: true,
+    state.mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) state.voiceChunks.push(event.data);
     };
-  });
 
-  if (state.priceChart) state.priceChart.destroy();
-
-  state.priceChart = new Chart(els.priceChart, {
-    type: 'line',
-    data: { datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: {
-          labels: { color: '#94a3b8', font: { family: 'Inter' }, usePointStyle: true },
-        },
-        tooltip: {
-          backgroundColor: '#111827',
-          borderColor: 'rgba(255,255,255,0.1)',
-          borderWidth: 1,
-          titleColor: '#f1f5f9',
-          bodyColor: '#94a3b8',
-          callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ${formatPrice(ctx.parsed.y)}`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          labels,
-          ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
-          grid: { color: 'rgba(255,255,255,0.04)' },
-        },
-        y: {
-          ticks: {
-            color: '#64748b',
-            font: { family: 'Inter', size: 11 },
-            callback: (v) => formatPrice(v),
-          },
-          grid: { color: 'rgba(255,255,255,0.04)' },
-        },
-      },
-    },
-  });
+    state.mediaRecorder.start();
+    els.composer.classList.add('is-hidden');
+    els.voiceBar.classList.remove('is-hidden');
+    els.btnVoice.classList.add('is-recording');
+    els.voiceTimer.textContent = '0:00';
+    state.voiceTimer = setInterval(() => {
+      els.voiceTimer.textContent = formatDuration(Date.now() - state.voiceStartedAt);
+    }, 250);
+  } catch {
+    showToast('Mikrofon-Zugriff abgelehnt');
+  }
 }
 
-// ── Spar-Optimierer ─────────────────────────────────────────
+function stopVoiceTracks() {
+  state.mediaRecorder?.stream?.getTracks?.().forEach((track) => track.stop());
+}
 
-async function loadOptimizer() {
-  els.optimizerLoading.classList.remove('hidden');
-  els.optimizerEmpty.classList.add('hidden');
-  els.optimizerContent.classList.add('hidden');
+function cancelVoiceRecording() {
+  clearInterval(state.voiceTimer);
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+    state.mediaRecorder.onstop = null;
+    state.mediaRecorder.stop();
+  }
+  stopVoiceTracks();
+  state.mediaRecorder = null;
+  state.voiceChunks = [];
+  els.voiceBar.classList.add('is-hidden');
+  els.composer.classList.remove('is-hidden');
+  els.btnVoice.classList.remove('is-recording');
+}
 
-  try {
-    const data = await api('/compare');
-    const comparisons = data.comparisons.map(applyCatalogRewePrice);
+function finishVoiceRecording(send) {
+  clearInterval(state.voiceTimer);
+  const recorder = state.mediaRecorder;
+  if (!recorder) return;
 
-    els.optimizerLoading.classList.add('hidden');
+  recorder.onstop = async () => {
+    stopVoiceTracks();
+    const duration = Date.now() - state.voiceStartedAt;
+    const blob = new Blob(state.voiceChunks, { type: recorder.mimeType || 'audio/webm' });
+    state.mediaRecorder = null;
+    state.voiceChunks = [];
+    els.voiceBar.classList.add('is-hidden');
+    els.composer.classList.remove('is-hidden');
+    els.btnVoice.classList.remove('is-recording');
 
-    if (comparisons.length === 0) {
-      els.optimizerEmpty.classList.remove('hidden');
+    if (!send || duration < 500 || blob.size < 100) {
+      showToast('Aufnahme zu kurz');
       return;
     }
 
-    renderOptimizer(comparisons);
-    els.optimizerContent.classList.remove('hidden');
-  } catch (err) {
-    els.optimizerLoading.classList.add('hidden');
-    showToast(err.message, 'error');
-  }
-}
-
-function applyCatalogRewePrice(product) {
-  const catalog = state.products.find((p) => p.id === product.product_id);
-  if (!catalog?.rewe_price) return product;
-
-  const hasLocal = product.stores.some((s) => !s.is_internet);
-  const reweRow = {
-    store_id: null,
-    store_name: 'REWE Online',
-    latest_price: catalog.rewe_price,
-    latest_date: new Date().toISOString().slice(0, 10),
-    is_internet: true,
+    const ext = (recorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
+    const file = new File([blob], `voice.${ext}`, { type: blob.type || 'audio/webm' });
+    try {
+      await sendMediaFile(file, { typeHint: 'audio', durationMs: duration });
+    } catch (error) {
+      showToast(error.message);
+    }
   };
 
-  if (!hasLocal && product.stores.length === 0) {
-    return {
-      ...product,
-      stores: [reweRow],
-      cheapest_store: 'REWE Online',
-      cheapest_price: catalog.rewe_price,
-    };
-  }
-
-  if (!product.stores.some((s) => s.is_internet)) {
-    const stores = [...product.stores, reweRow];
-    const cheapest = stores.reduce((min, s) => (s.latest_price < min.latest_price ? s : min));
-    return {
-      ...product,
-      stores,
-      cheapest_store: cheapest.store_name,
-      cheapest_price: cheapest.latest_price,
-    };
-  }
-
-  return product;
+  if (recorder.state !== 'inactive') recorder.stop();
 }
 
-function renderOptimizer(comparisons) {
-  const withLocalData = comparisons.filter((c) =>
-    c.stores.some((s) => !s.is_internet)
-  );
-  const storeWins = {};
-  for (const c of withLocalData) {
-    if (c.cheapest_store) {
-      storeWins[c.cheapest_store] = (storeWins[c.cheapest_store] || 0) + 1;
+function openNewChatDialog() {
+  els.contactList.innerHTML =
+    state.users
+      .map((user) => {
+        const online = state.onlineIds.has(user.id);
+        return `
+        <button type="button" class="contact-item" data-id="${user.id}">
+          <div class="avatar ${online ? 'is-online' : ''}" style="background:linear-gradient(145deg, ${user.avatar_color}, color-mix(in srgb, ${user.avatar_color} 65%, #041f1d))">${initials(user.display_name)}</div>
+          <div class="contact-main">
+            <div class="contact-name">${escapeHtml(user.display_name)}</div>
+            <div class="contact-status">${online ? 'online' : formatLastSeen(user.last_seen_at, { hidden: user.show_last_seen === false })}</div>
+          </div>
+        </button>`;
+      })
+      .join('') || '<p style="padding:16px;color:var(--muted);">Keine Kontakte.</p>';
+
+  els.contactList.querySelectorAll('.contact-item').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      els.newChatDialog.close();
+      const data = await api('/api/conversations', {
+        method: 'POST',
+        body: { user_id: btn.dataset.id },
+      });
+      const existingIdx = state.conversations.findIndex((c) => c.id === data.conversation.id);
+      if (existingIdx >= 0) state.conversations[existingIdx] = data.conversation;
+      else state.conversations.unshift(data.conversation);
+      await openConversation(data.conversation.id);
+    });
+  });
+
+  els.newChatDialog.showModal();
+}
+
+function openNewGroupDialog() {
+  state.selectedGroupMembers = new Set();
+  els.groupTitle.value = '';
+  renderGroupContacts();
+  els.newGroupDialog.showModal();
+}
+
+function renderGroupContacts() {
+  els.groupContactList.innerHTML = state.users
+    .map((user) => {
+      const selected = state.selectedGroupMembers.has(user.id);
+      return `
+        <button type="button" class="contact-item has-check ${selected ? 'is-selected' : ''}" data-id="${user.id}">
+          <div class="avatar" style="background:linear-gradient(145deg, ${user.avatar_color}, color-mix(in srgb, ${user.avatar_color} 65%, #041f1d))">${initials(user.display_name)}</div>
+          <div class="contact-main">
+            <div class="contact-name">${escapeHtml(user.display_name)}</div>
+            <div class="contact-status">@${escapeHtml(user.username)}</div>
+          </div>
+          <div class="contact-check">${selected ? '✓' : ''}</div>
+        </button>`;
+    })
+    .join('');
+
+  els.groupContactList.querySelectorAll('.contact-item').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (state.selectedGroupMembers.has(btn.dataset.id)) state.selectedGroupMembers.delete(btn.dataset.id);
+      else state.selectedGroupMembers.add(btn.dataset.id);
+      renderGroupContacts();
+    });
+  });
+}
+
+els.authTabs.forEach((tab) => {
+  tab.addEventListener('click', () => {
+    els.authTabs.forEach((t) => t.classList.remove('is-active'));
+    tab.classList.add('is-active');
+    const isLogin = tab.dataset.tab === 'login';
+    els.loginForm.classList.toggle('is-hidden', !isLogin);
+    els.registerForm.classList.toggle('is-hidden', isLogin);
+    showAuthError('');
+  });
+});
+
+async function handleAuthSuccess(data) {
+  state.token = data.token;
+  state.user = data.user;
+  localStorage.setItem(TOKEN_KEY, data.token);
+  await setupE2E(data.user);
+  showApp();
+  connectSocket();
+  await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
+  ensureMessageConsent();
+  showToast('Chats sind Ende-zu-Ende verschlüsselt');
+}
+
+els.loginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  showAuthError('');
+  const form = new FormData(els.loginForm);
+  try {
+    const data = await api('/api/auth/login', {
+      method: 'POST',
+      auth: false,
+      body: { username: form.get('username'), password: form.get('password') },
+    });
+    await handleAuthSuccess(data);
+  } catch (error) {
+    showAuthError(error.message);
+  }
+});
+
+els.registerForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  showAuthError('');
+  const form = new FormData(els.registerForm);
+  try {
+    const data = await api('/api/auth/register', {
+      method: 'POST',
+      auth: false,
+      body: {
+        username: form.get('username'),
+        display_name: form.get('display_name'),
+        password: form.get('password'),
+        privacy_consent: form.get('privacy_consent') === 'on',
+        age_confirmed: form.get('age_confirmed') === 'on',
+        message_consent: form.get('message_consent') === 'on',
+        media_consent: form.get('media_consent') === 'on',
+        impulse_consent: form.get('impulse_consent') === 'on',
+      },
+    });
+    await handleAuthSuccess(data);
+  } catch (error) {
+    showAuthError(error.message);
+  }
+});
+
+els.btnMenu?.addEventListener('click', () => toggleMenu());
+els.btnMenuClose?.addEventListener('click', () => closeMenu());
+els.menuBackdrop?.addEventListener('click', () => closeMenu());
+
+els.appMenu?.addEventListener('click', async (event) => {
+  const target = event.target.closest('[data-menu-action], a.menu-item');
+  if (!target) return;
+  if (target.matches('a.menu-item')) {
+    closeMenu();
+    return;
+  }
+  event.preventDefault();
+  await handleMenuAction(target.getAttribute('data-menu-action'));
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    if (els.appMenu?.classList.contains('is-open')) closeMenu();
+    if (state.openMsgMenu || state.openReactionFor) {
+      state.openMsgMenu = null;
+      state.openReactionFor = null;
+      renderMessages();
     }
   }
+});
 
-  const topStore = Object.entries(storeWins).sort((a, b) => b[1] - a[1])[0];
+document.addEventListener('click', (event) => {
+  if (!state.openMsgMenu && !state.openReactionFor) return;
+  if (event.target.closest('.msg-toolbar, .reaction-picker')) return;
+  state.openMsgMenu = null;
+  state.openReactionFor = null;
+  renderMessages();
+});
 
-  els.optimizerSummary.innerHTML = `
-    <div class="summary-card">
-      <div class="summary-value">${comparisons.length}</div>
-      <div class="summary-label">Produkte im Katalog</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-value">${withLocalData.length}</div>
-      <div class="summary-label">Mit Bon-Daten</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-value">${topStore ? topStore[0] : '–'}</div>
-      <div class="summary-label">Günstigster Laden (Bon)</div>
-    </div>
-  `;
+els.btnNewChat.addEventListener('click', async () => {
+  await refreshUsers();
+  openNewChatDialog();
+});
 
-  els.optimizerCards.innerHTML = '';
-  for (const product of comparisons) {
-    const card = document.createElement('div');
-    card.className = 'product-card';
-    card.dataset.productId = product.product_id;
+els.btnEmptyNew.addEventListener('click', async () => {
+  await refreshUsers();
+  openNewChatDialog();
+});
 
-    const hasLocal = product.stores.some((s) => !s.is_internet);
-    const storeRows = product.stores.length
-      ? product.stores
-          .sort((a, b) => a.latest_price - b.latest_price)
-          .map((s) => {
-            const isCheapest = s.store_name === product.cheapest_store;
-            return `
-              <div class="store-row ${isCheapest ? 'cheapest' : ''}">
-                <div class="store-name">
-                  <span class="store-dot ${storeDotClass(s.store_name)}"></span>
-                  ${s.store_name}
-                  ${s.is_internet ? '<span class="internet-tag">Online</span>' : ''}
-                </div>
-                <div class="text-right">
-                  <div class="store-price">${formatPrice(s.latest_price)}</div>
-                  <div class="store-date">${formatDate(s.latest_date)}</div>
-                </div>
-              </div>
-            `;
-          })
-          .join('')
-      : '<p class="no-data">Keine Preisdaten – REWE-Preis im Katalog nicht verfügbar</p>';
-
-    const badgeContent = product.cheapest_store
-      ? `✓ ${product.cheapest_store} · ${formatPrice(product.cheapest_price)}`
-      : 'Kein Preis';
-
-    card.innerHTML = `
-      <div class="product-card-header">
-        <div class="product-card-title-row">
-          ${productImageHtml(product.image_url, product.product_name, product.category, 'md')}
-          <div>
-            <div class="product-card-name">${product.product_name}</div>
-            <div class="product-card-category">${product.category}</div>
-          </div>
-        </div>
-        <div class="cheapest-badge">
-          ${badgeContent}
-        </div>
-      </div>
-      ${storeRows}
-    `;
-    els.optimizerCards.appendChild(card);
+els.privacyLastSeen.addEventListener('change', async () => {
+  try {
+    const data = await api('/api/me/privacy', {
+      method: 'PATCH',
+      body: { show_last_seen: els.privacyLastSeen.checked },
+    });
+    state.user = data.user;
+    showToast(els.privacyLastSeen.checked ? 'Zuletzt online sichtbar' : 'Zuletzt online ausgeblendet');
+  } catch (error) {
+    els.privacyLastSeen.checked = !els.privacyLastSeen.checked;
+    showToast(error.message);
   }
-}
+});
 
-// ── Utils ───────────────────────────────────────────────────
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+els.privacyRetention.addEventListener('change', async () => {
+  try {
+    const data = await api('/api/me/privacy', {
+      method: 'PATCH',
+      body: { message_retention_days: Number(els.privacyRetention.value) },
+    });
+    state.user = data.user;
+    showToast(`Nachrichten-Frist: ${els.privacyRetention.value} Tage`);
+  } catch (error) {
+    els.privacyRetention.value = String(state.user?.message_retention_days || 30);
+    showToast(error.message);
+  }
+});
 
-// ── Boot ────────────────────────────────────────────────────
-function initDemoBanner() {
-  if (!DEMO_MODE) return;
-  const banner = document.createElement('div');
-  banner.className = 'demo-banner demo-banner--live';
-  banner.innerHTML = `
-    <span>🌐 <strong>Live-Modus</strong> – Echte REWE-Preise &amp; Produktbilder</span>
-    <span class="demo-banner-hint">Deine Bons werden lokal im Browser gespeichert</span>
-  `;
-  document.querySelector('header')?.after(banner);
-}
+els.privacyRestrict?.addEventListener('change', async () => {
+  try {
+    const data = await api('/api/me/privacy', {
+      method: 'PATCH',
+      body: { processing_restricted: els.privacyRestrict.checked },
+    });
+    state.user = data.user;
+    renderConsentStatus();
+    showToast(
+      els.privacyRestrict.checked
+        ? 'Neue Nachrichten und Status pausiert'
+        : 'Verarbeitung wieder aktiv'
+    );
+  } catch (error) {
+    els.privacyRestrict.checked = !els.privacyRestrict.checked;
+    showToast(error.message);
+  }
+});
 
-initNavigation();
-initUpload();
-initDemoBanner();
-loadInitialData();
+els.btnRevokeMessages?.addEventListener('click', () => revokeScope('messages'));
+els.btnRevokeMedia?.addEventListener('click', () => revokeScope('media'));
+els.btnRevokeImpulses?.addEventListener('click', () => revokeScope('impulses'));
+els.btnGrantMessages?.addEventListener('click', () => grantScope('messages'));
+els.btnGrantMedia?.addEventListener('click', () => grantScope('media'));
+els.btnGrantImpulses?.addEventListener('click', () => grantScope('impulses'));
+
+els.messageConsentForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!els.messageConsentCheck.checked) return;
+  try {
+    const data = await api('/api/me/message-consent', {
+      method: 'POST',
+      body: { message_consent: true },
+    });
+    state.user = data.user;
+    els.messageConsentDialog.close();
+    showToast('Nachrichten-Einwilligung gespeichert');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnExportData.addEventListener('click', async () => {
+  try {
+    await exportUserDataDownload();
+    showToast('Datenexport gestartet');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnDeleteAccount.addEventListener('click', async () => {
+  const ok = confirm(
+    'Konto wirklich unwiderruflich löschen? Nachrichten, Medien und Status werden entfernt.'
+  );
+  if (!ok) return;
+  const again = prompt('Zur Bestätigung „LÖSCHEN“ eingeben');
+  if (again !== 'LÖSCHEN') {
+    showToast('Löschung abgebrochen');
+    return;
+  }
+  try {
+    await api('/api/me', { method: 'DELETE' });
+    state.socket?.disconnect();
+    state.socket = null;
+    state.token = null;
+    state.user = null;
+    localStorage.removeItem(TOKEN_KEY);
+    els.privacyDialog.close();
+    showAuth();
+    showToast('Konto gelöscht');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnAcceptStorage.addEventListener('click', () => {
+  localStorage.setItem('relay_storage_notice', '1');
+  els.storageBanner.classList.add('is-hidden');
+});
+
+els.btnCloseGroup.addEventListener('click', () => els.newGroupDialog.close());
+
+els.newGroupForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    const data = await api('/api/conversations', {
+      method: 'POST',
+      body: {
+        type: 'group',
+        title: els.groupTitle.value,
+        member_ids: [...state.selectedGroupMembers],
+      },
+    });
+    els.newGroupDialog.close();
+    state.conversations.unshift(data.conversation);
+    await openConversation(data.conversation.id);
+    showToast('Gruppe erstellt');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnPoll.addEventListener('click', () => {
+  if (!state.activeConversationId) return;
+  if (!ensureMessageConsent()) return;
+  els.pollQuestion.value = '';
+  els.pollForm.querySelectorAll('.poll-option').forEach((input) => {
+    input.value = '';
+  });
+  els.pollDialog.showModal();
+});
+
+els.btnClosePoll.addEventListener('click', () => els.pollDialog.close());
+
+els.pollForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const options = [...els.pollForm.querySelectorAll('.poll-option')]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+  try {
+    const recipients = await recipientsForConversation(state.activeConversationId);
+    const encrypted = await encryptTextForRecipients(els.pollQuestion.value.trim(), recipients);
+    const data = await api(`/api/conversations/${state.activeConversationId}/messages`, {
+      method: 'POST',
+      body: {
+        type: 'poll',
+        body: encrypted,
+        options,
+        reply_to_id: state.replyTo?.id || null,
+      },
+    });
+    state.replyTo = null;
+    updateReplyBar();
+    upsertLocalMessage(await decryptOneMessage(data.message));
+    els.pollDialog.close();
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnAttach.addEventListener('click', () => {
+  if (!state.activeConversationId) return;
+  els.imageInput.click();
+});
+
+els.imageInput.addEventListener('change', async () => {
+  const file = els.imageInput.files?.[0];
+  els.imageInput.value = '';
+  if (!file) return;
+  try {
+    await sendMediaFile(file, { typeHint: 'image' });
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnVoice.addEventListener('click', () => startVoiceRecording());
+els.btnVoiceCancel.addEventListener('click', () => cancelVoiceRecording());
+els.btnVoiceSend.addEventListener('click', () => finishVoiceRecording(true));
+
+els.btnAddStatus.addEventListener('click', () => {
+  if (!ensureImpulseConsent()) return;
+  els.statusText.value = '';
+  els.statusImage.value = '';
+  els.statusDialog.showModal();
+});
+
+els.btnCloseStatus.addEventListener('click', () => els.statusDialog.close());
+els.btnCloseViewer.addEventListener('click', () => els.statusViewer.close());
+
+els.statusForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!ensureImpulseConsent()) return;
+  const formData = new FormData();
+  const text = els.statusText.value.trim();
+  const file = els.statusImage.files?.[0];
+  if (!text && !file) {
+    showToast('Text oder Bild nötig');
+    return;
+  }
+  if (file && !ensureMediaConsent()) return;
+  if (text) formData.append('body', text);
+  if (file) formData.append('file', file);
+  formData.append('type', file ? 'image' : 'text');
+
+  try {
+    await api('/api/statuses', { method: 'POST', formData });
+    els.statusDialog.close();
+    await refreshStatuses();
+    showToast('Status veröffentlicht');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnBack.addEventListener('click', () => {
+  els.appScreen.classList.remove('show-chat');
+});
+
+els.btnCancelReply.addEventListener('click', () => {
+  state.replyTo = null;
+  updateReplyBar();
+});
+
+els.chatSearch.addEventListener('input', () => {
+  state.search = els.chatSearch.value;
+  renderConversationList();
+});
+
+els.composer.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const body = els.messageInput.value;
+  els.messageInput.value = '';
+  try {
+    await sendMessage(body);
+  } catch (error) {
+    els.messageInput.value = body;
+    showToast(error.message);
+  }
+});
+
+els.messageInput.addEventListener('input', () => {
+  if (!state.activeConversationId || !state.socket) return;
+  state.socket.emit('typing:start', { conversation_id: state.activeConversationId });
+  clearTimeout(state.typingTimeout);
+  state.typingTimeout = setTimeout(() => {
+    state.socket?.emit('typing:stop', { conversation_id: state.activeConversationId });
+  }, 1200);
+});
+
+bootstrapSession();
+maybeShowStorageBanner();

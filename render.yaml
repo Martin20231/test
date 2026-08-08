@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: einkaufs-tracker-api
+    name: relay-messenger
     runtime: node
     plan: free
     buildCommand: npm install

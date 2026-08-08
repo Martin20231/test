@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Impressum — Relay</title>
+    <link rel="stylesheet" href="./style.css" />
+    <style>
+      body {
+        overflow: auto;
+        min-height: 100vh;
+      }
+      main.legal-page {
+        width: min(720px, calc(100% - 32px));
+        margin: 28px auto 48px;
+        background: rgba(247, 249, 252, 0.94);
+        border-radius: 24px;
+        padding: 28px 24px;
+        box-shadow: var(--shadow);
+      }
+      h1 {
+        font-family: var(--font-display);
+        margin: 0 0 8px;
+        font-size: 2rem;
+        letter-spacing: -0.03em;
+      }
+      h2 {
+        font-family: var(--font-display);
+        margin: 22px 0 8px;
+        font-size: 1.15rem;
+      }
+      p, li { color: var(--ink-soft); line-height: 1.55; }
+      .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 18px; }
+      .back {
+        display: inline-block;
+        margin-bottom: 16px;
+        text-decoration: none;
+        font-weight: 700;
+        color: var(--accent);
+      }
+      .note {
+        margin-top: 18px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(228, 87, 46, 0.08);
+        font-size: 0.9rem;
+      }
+      .placeholder { font-style: italic; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main class="legal-page">
+      <a class="back" href="/">← Zurück zu Relay</a>
+      <h1>Impressum</h1>
+      <p class="meta">Angaben gemäß §&nbsp;5 Digitale-Dienste-Gesetz (DDG) · Messenger „Relay“</p>
+
+      <h2>Diensteanbieter</h2>
+      <p id="imp-name" class="placeholder">[Name / Firma eintragen]</p>
+      <p id="imp-address" class="placeholder">[Anschrift eintragen]</p>
+
+      <h2>Kontakt</h2>
+      <p>E-Mail: <span id="imp-email" class="placeholder">[E-Mail eintragen]</span></p>
+      <p id="imp-phone-wrap" hidden>Telefon: <span id="imp-phone"></span></p>
+
+      <h2>Verantwortlich für den Inhalt</h2>
+      <p id="imp-responsible" class="placeholder">[Verantwortliche Person nach §&nbsp;18 Abs.&nbsp;2 MStV, falls einschlägig]</p>
+
+      <h2>Umsatzsteuer</h2>
+      <p id="imp-vat" class="placeholder">USt-IdNr. falls vorhanden: [optional]</p>
+
+      <h2>Haftung für Inhalte</h2>
+      <p>
+        Als Diensteanbieter sind wir gemäß §&nbsp;7 Abs.&nbsp;1 DDG für eigene Inhalte auf diesen Seiten nach den
+        allgemeinen Gesetzen verantwortlich. Nach §§&nbsp;8 bis 10 DDG sind wir als Diensteanbieter jedoch nicht
+        verpflichtet, übermittelte oder gespeicherte fremde Informationen zu überwachen oder nach Umständen zu
+        forschen, die auf eine rechtswidrige Tätigkeit hinweisen. Verpflichtungen zur Entfernung oder Sperrung der
+        Nutzung von Informationen nach den allgemeinen Gesetzen bleiben hiervon unberührt.
+      </p>
+
+      <h2>Haftung für Links</h2>
+      <p>
+        Unser Angebot kann Links zu externen Websites Dritter enthalten. Auf deren Inhalte haben wir keinen Einfluss;
+        deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen. Für die Inhalte der verlinkten
+        Seiten ist stets der jeweilige Anbieter oder Betreiber der Seiten verantwortlich.
+      </p>
+
+      <h2>Urheberrecht</h2>
+      <p>
+        Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen dem deutschen
+        Urheberrecht. Beiträge Dritter sind als solche gekennzeichnet. Die Vervielfältigung, Bearbeitung, Verbreitung
+        und jede Art der Verwertung außerhalb der Grenzen des Urheberrechts bedürfen der schriftlichen Zustimmung des
+        jeweiligen Autors bzw. Erstellers.
+      </p>
+
+      <p class="note">
+        Vor einem öffentlichen Produktivbetrieb die Platzhalter durch echte Betreiberdaten ersetzen
+        (Umgebungsvariablen <code>IMPRESSUM_NAME</code>, <code>IMPRESSUM_ADDRESS</code>,
+        <code>IMPRESSUM_EMAIL</code>, optional <code>IMPRESSUM_PHONE</code>,
+        <code>IMPRESSUM_VAT_ID</code>, <code>IMPRESSUM_RESPONSIBLE</code>).
+        Siehe auch die <a href="/datenschutz.html">Datenschutzerklärung</a>.
+      </p>
+    </main>
+    <script>
+      fetch('/api/legal/impressum')
+        .then((r) => r.json())
+        .then((data) => {
+          const set = (id, value, isPlaceholder = false) => {
+            const el = document.getElementById(id);
+            if (!el || value == null || value === '') return;
+            el.textContent = value;
+            if (!isPlaceholder && String(value).startsWith('[')) el.classList.add('placeholder');
+            else el.classList.remove('placeholder');
+          };
+          set('imp-name', data.name, true);
+          set('imp-address', data.address, true);
+          set('imp-email', data.email, true);
+          if (data.phone) {
+            document.getElementById('imp-phone-wrap').hidden = false;
+            set('imp-phone', data.phone);
+          }
+          if (data.responsible) set('imp-responsible', data.responsible);
+          if (data.vat_id) set('imp-vat', `USt-IdNr.: ${data.vat_id}`);
+        })
+        .catch(() => {});
+    </script>
+  </body>
+</html>

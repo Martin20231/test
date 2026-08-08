@@ -1,255 +1,360 @@
 <!DOCTYPE html>
-<html lang="de" class="h-full">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Einkaufs-Tracker</title>
-  <script src="config.js?v=6"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            surface: '#0a0f1a',
-            panel: '#111827',
-            neon: {
-              green: '#00ff9d',
-              blue: '#00d4ff',
-            },
-          },
-          fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-          },
-        },
-      },
-    };
-  </script>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="style.css?v=6" />
-</head>
-<body class="h-full bg-surface text-slate-100 font-sans antialiased">
-  <div class="app-bg"></div>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#152238" />
+    <title>Relay</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
 
-  <div class="relative z-10 min-h-full flex flex-col">
-    <!-- Header -->
-    <header class="border-b border-white/5 backdrop-blur-xl bg-panel/60 sticky top-0 z-50">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div class="flex items-center gap-3">
-          <div class="logo-glow w-10 h-10 rounded-2xl flex items-center justify-center text-lg font-bold">€</div>
-          <div>
-            <h1 class="text-xl font-bold tracking-tight">Einkaufs-Tracker</h1>
-            <p class="text-xs text-slate-400">Smart Shopping Intelligence</p>
-          </div>
+    <section id="auth-screen" class="auth-screen">
+      <div class="auth-panel">
+        <h1 class="brand-name">Relay</h1>
+        <p class="brand-tagline">Nachrichten Ende-zu-Ende verschlüsselt. Der Server sieht nur Ciphertext.</p>
+
+        <div class="auth-tabs" role="tablist">
+          <button type="button" class="auth-tab is-active" data-tab="login">Anmelden</button>
+          <button type="button" class="auth-tab" data-tab="register">Registrieren</button>
         </div>
-        <nav class="flex gap-2 p-1 rounded-2xl bg-white/5 border border-white/5" role="tablist">
-          <button class="nav-tab active" data-view="upload" role="tab" aria-selected="true">
-            <span class="nav-icon">📸</span>
-            <span>Bon hochladen</span>
-          </button>
-          <button class="nav-tab" data-view="checker" role="tab" aria-selected="false">
-            <span class="nav-icon">📈</span>
-            <span>Preis-Checker</span>
-          </button>
-          <button class="nav-tab" data-view="optimizer" role="tab" aria-selected="false">
-            <span class="nav-icon">💰</span>
-            <span>Spar-Optimierer</span>
-          </button>
-        </nav>
+
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <label><span>Benutzername</span><input name="username" required minlength="3" maxlength="24" placeholder="dein.name" /></label>
+          <label><span>Passwort</span><input name="password" type="password" required minlength="4" placeholder="••••••••" /></label>
+          <button type="submit" class="btn btn-primary">Anmelden</button>
+        </form>
+
+        <form id="register-form" class="auth-form is-hidden" autocomplete="on">
+          <label><span>Benutzername</span><input name="username" required minlength="3" maxlength="24" placeholder="dein.name" /></label>
+          <label><span>Anzeigename</span><input name="display_name" required minlength="2" maxlength="40" placeholder="Dein Name" /></label>
+          <label><span>Passwort</span><input name="password" type="password" required minlength="8" placeholder="Mindestens 8 Zeichen" /></label>
+          <label class="check-row"><input name="age_confirmed" type="checkbox" required /><span>Ich bin mindestens 16 Jahre alt.</span></label>
+          <label class="check-row"><input name="privacy_consent" type="checkbox" required /><span>Ich akzeptiere die <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.</span></label>
+          <label class="check-row"><input name="message_consent" type="checkbox" required /><span>Einwilligung zur Verarbeitung von <strong>Nachrichten-Metadaten</strong> (Zustellung). Inhalte sind Ende-zu-Ende verschlüsselt.</span></label>
+          <label class="check-row"><input name="media_consent" type="checkbox" required /><span>Einwilligung zur Verarbeitung von <strong>Medien</strong> (Bilder und Sprachnotizen).</span></label>
+          <label class="check-row"><input name="impulse_consent" type="checkbox" required /><span>Einwilligung zur Verarbeitung von <strong>Status</strong>-Beiträgen.</span></label>
+          <button type="submit" class="btn btn-primary">Konto erstellen</button>
+        </form>
+
+        <p id="auth-error" class="auth-error" hidden></p>
+        <aside class="auth-footer">
+          <a href="/datenschutz.html">Datenschutz</a>
+          <a href="/impressum.html">Impressum</a>
+          <span class="auth-accounts">Testzugänge: anna, ben, clara, david — Passwort <code>demo</code></span>
+        </aside>
       </div>
-    </header>
+    </section>
 
-    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-      <!-- Toast -->
-      <div id="toast" class="toast hidden" role="status"></div>
-
-      <!-- View 1: Bon hochladen -->
-      <section id="view-upload" class="view active space-y-8">
-        <div class="view-header">
-          <h2 class="view-title">Kassenbon scannen</h2>
-          <p class="view-subtitle">Foto vom Kassenbon hochladen – Artikel und Preise werden per OCR erkannt (Netto, EDEKA, ROSSMANN, REWE …).</p>
-        </div>
-
-        <div class="grid lg:grid-cols-2 gap-8">
-          <!-- Drop Zone -->
-          <div class="space-y-6">
-            <div id="drop-zone" class="drop-zone">
-              <input type="file" id="file-input" accept="image/*" class="hidden" />
-              <div id="drop-placeholder" class="drop-placeholder">
-                <div class="drop-icon">⬆</div>
-                <p class="text-lg font-semibold">Foto hierher ziehen</p>
-                <p class="text-sm text-slate-400 mt-1">oder klicken zum Auswählen</p>
-                <p class="text-xs text-slate-500 mt-4">PNG, JPG · max. 10 MB</p>
-              </div>
-              <img id="preview-image" class="preview-image hidden" alt="Kassenbon Vorschau" />
-              <div id="scan-overlay" class="scan-overlay hidden">
-                <div class="scan-laser"></div>
-                <div class="scan-grid"></div>
-              </div>
-            </div>
-
-            <div class="flex flex-col sm:flex-row gap-4">
-              <div class="flex-1">
-                <label class="field-label" for="store-select">Laden</label>
-                <select id="store-select" class="field-input">
-                  <option value="">Laden wählen…</option>
-                </select>
-              </div>
-              <div class="flex items-end">
-                <button id="btn-analyze" class="btn-primary w-full sm:w-auto" disabled>
-                  <span class="btn-glow"></span>
-                  Bon scannen
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Results -->
-          <div class="panel-card">
-            <div class="flex items-center justify-between mb-6">
-              <h3 class="text-lg font-semibold">Erkannte Produkte</h3>
-              <span id="analyze-status" class="status-badge idle">Bereit</span>
-            </div>
-
-            <div id="results-empty" class="empty-state">
-              <div class="empty-icon">🔍</div>
-              <p>Noch keine Auswertung</p>
-              <p class="text-sm text-slate-500">Lade einen Bon hoch und starte die KI-Analyse</p>
-            </div>
-
-            <div id="results-table-wrap" class="hidden">
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Produkt</th>
-                      <th>Laden</th>
-                      <th class="text-right">Preis</th>
-                    </tr>
-                  </thead>
-                  <tbody id="results-tbody"></tbody>
-                </table>
-              </div>
-              <div class="flex items-center justify-between mt-6 pt-6 border-t border-white/5">
-                <div>
-                  <p class="text-sm text-slate-400">Gesamtsumme</p>
-                  <p id="results-total" class="text-2xl font-bold text-neon-green">0,00 €</p>
-                </div>
-                <button id="btn-save" class="btn-primary">
-                  <span class="btn-glow"></span>
-                  Speichern
-                </button>
-              </div>
-            </div>
+    <main id="app-screen" class="app-shell is-hidden">
+      <header class="topbar">
+        <div class="topbar-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <div class="brand-inline">Relay</div>
+            <div id="me-name" class="me-name"></div>
           </div>
         </div>
-      </section>
-
-      <!-- View 2: Preis-Checker -->
-      <section id="view-checker" class="view hidden space-y-6">
-        <div class="view-header">
-          <h2 class="view-title">Preis-Checker</h2>
-          <p class="view-subtitle">Markt und Kategorie antippen – dann alle Produkte durchstöbern und Preise vergleichen.</p>
+        <div class="topbar-actions">
+          <button type="button" id="btn-new-chat" class="btn btn-primary btn-small topbar-quick">Neuer Chat</button>
+          <button
+            type="button"
+            id="btn-menu"
+            class="hamburger-btn"
+            aria-label="Menü öffnen"
+            aria-expanded="false"
+            aria-controls="app-menu"
+          >
+            <span class="hamburger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+          </button>
         </div>
+      </header>
 
-        <div class="panel-card checker-browser">
-          <p class="field-label">Markt wählen</p>
-          <div id="checker-store-chips" class="store-chips" role="tablist">
-            <p class="checker-loading">Lädt Märkte…</p>
+      <div id="menu-backdrop" class="menu-backdrop is-hidden" hidden></div>
+      <nav id="app-menu" class="app-menu" aria-hidden="true" aria-label="Hauptmenü">
+        <header class="app-menu-header">
+          <div>
+            <strong id="menu-user-name">Konto</strong>
+          </div>
+          <button type="button" id="btn-menu-close" class="icon-btn" aria-label="Menü schließen">×</button>
+        </header>
+
+        <div class="app-menu-body">
+          <section class="menu-section">
+            <h3>Chats</h3>
+            <button type="button" class="menu-item" data-menu-action="new-chat">
+              <span class="menu-item-label">Neuer Chat</span>
+            </button>
+            <button type="button" class="menu-item" data-menu-action="new-group" id="btn-new-group">
+              <span class="menu-item-label">Neue Gruppe</span>
+            </button>
+          </section>
+
+          <section class="menu-section">
+            <h3>Status</h3>
+            <button type="button" class="menu-item" data-menu-action="add-status">
+              <span class="menu-item-label">Status posten</span>
+            </button>
+          </section>
+
+          <section class="menu-section">
+            <h3>Konto</h3>
+            <button type="button" class="menu-item" data-menu-action="privacy" id="btn-privacy">
+              <span class="menu-item-label">Privatsphäre</span>
+            </button>
+            <button type="button" class="menu-item" data-menu-action="export">
+              <span class="menu-item-label">Daten exportieren</span>
+            </button>
+          </section>
+
+          <section class="menu-section">
+            <h3>Rechtliches</h3>
+            <a class="menu-item" href="/datenschutz.html" target="_blank" rel="noopener">
+              <span class="menu-item-label">Datenschutz</span>
+            </a>
+            <a class="menu-item" href="/impressum.html" target="_blank" rel="noopener">
+              <span class="menu-item-label">Impressum</span>
+            </a>
+          </section>
+
+          <section class="menu-section menu-section-danger">
+            <button type="button" class="menu-item menu-item-danger" data-menu-action="logout" id="btn-logout">
+              <span class="menu-item-label">Abmelden</span>
+            </button>
+          </section>
+        </div>
+      </nav>
+
+      <div class="workspace">
+        <aside class="rail">
+          <section class="impulse-panel">
+            <div class="panel-head">
+              <h2>Status</h2>
+              <button type="button" id="btn-add-status" class="text-btn">+ Neu</button>
+            </div>
+            <div id="status-list" class="impulse-list"></div>
+          </section>
+
+          <div class="search-wrap">
+            <input id="chat-search" type="search" placeholder="Chats suchen" />
+          </div>
+          <div id="conversation-list" class="conversation-list" role="list"></div>
+        </aside>
+
+        <section class="stage" id="chat-pane">
+          <div id="empty-state" class="empty-state">
+            <h2>Noch kein Chat geöffnet</h2>
+            <p>Wähle einen bestehenden Chat oder starte einen neuen.</p>
+            <button type="button" id="btn-empty-new" class="btn btn-primary">Neuer Chat</button>
           </div>
 
-          <p class="field-label mt-6">Kategorie</p>
-          <div id="checker-category-chips" class="category-chips" role="tablist"></div>
-
-          <p id="product-grid-count" class="product-grid-count"></p>
-          <div id="product-grid" class="product-grid hidden"></div>
-          <p id="checker-hint" class="checker-hint hidden">Produkte werden geladen…</p>
-        </div>
-
-        <div id="chart-empty" class="panel-card empty-state">
-          <div class="empty-icon">📊</div>
-          <p>Wähle ein Produkt aus dem Menü</p>
-          <p class="text-sm text-slate-500">Preisverlauf und REWE-Vergleich erscheinen hier</p>
-        </div>
-
-        <div id="chart-panel" class="panel-card hidden">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-            <div class="chart-header-inner flex items-center gap-4">
-              <div id="chart-product-image"></div>
-              <div>
-                <h3 id="chart-product-name" class="text-xl font-bold"></h3>
-                <p id="chart-meta" class="text-sm text-slate-400 mt-1"></p>
+          <div id="active-chat" class="active-chat is-hidden">
+            <header class="chat-header">
+              <button type="button" id="btn-back" class="icon-btn back-btn" aria-label="Zurück">←</button>
+              <div id="peer-avatar" class="avatar" aria-hidden="true"></div>
+              <div class="chat-header-text">
+                <div id="peer-name" class="peer-name"></div>
+                <div id="peer-meta" class="peer-meta"></div>
               </div>
+            </header>
+
+            <div id="pin-rail" class="pin-rail is-hidden"></div>
+
+            <div id="message-list" class="message-list" aria-live="polite"></div>
+            <div id="typing-indicator" class="typing-indicator is-hidden"><span></span><span></span><span></span></div>
+
+            <div id="reply-bar" class="reply-bar is-hidden">
+              <div class="reply-bar-text">
+                <strong id="reply-bar-name"></strong>
+                <span id="reply-bar-body"></span>
+              </div>
+              <button type="button" id="btn-cancel-reply" class="icon-btn" aria-label="Antwort abbrechen">×</button>
             </div>
-            <div id="chart-stats" class="flex gap-4 flex-wrap"></div>
-          </div>
-          <div class="chart-container">
-            <canvas id="price-chart"></canvas>
-          </div>
-        </div>
 
-        <div id="lookup-loading" class="panel-card empty-state hidden">
-          <div class="spinner"></div>
-          <p>REWE-Preise werden geladen…</p>
-        </div>
-
-        <div id="lookup-panel" class="panel-card hidden space-y-6">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h3 class="text-lg font-semibold">Internet vs. deine Preise</h3>
-              <p id="lookup-disclaimer" class="text-xs text-slate-500 mt-1"></p>
+            <form id="composer" class="composer">
+              <button type="button" id="btn-attach" class="icon-btn composer-cam" title="Kamera / Foto" aria-label="Foto aufnehmen oder wählen">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 5.5A4.5 4.5 0 1 1 7.5 13 4.5 4.5 0 0 1 12 8.5zm0 2A2.5 2.5 0 1 0 14.5 13 2.5 2.5 0 0 0 12 10.5z"/></svg>
+              </button>
+              <input id="image-input" type="file" accept="image/*" capture="environment" hidden />
+              <input id="message-input" type="text" maxlength="2000" placeholder="Nachricht schreiben…" autocomplete="off" />
+              <button type="button" id="btn-poll" class="icon-btn composer-poll" title="Umfrage" aria-label="Umfrage">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M5 4h4v16H5zm5 6h4v10h-4zm5-4h4v14h-4z"/></svg>
+              </button>
+              <button type="button" id="btn-voice" class="icon-btn composer-mic" title="Sprachnotiz" aria-label="Sprachnotiz aufnehmen">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>
+              </button>
+              <button type="submit" class="send-btn" aria-label="Senden">→</button>
+            </form>
+            <div id="voice-bar" class="voice-bar is-hidden">
+              <span class="voice-dot"></span>
+              <span id="voice-timer">0:00</span>
+              <button type="button" id="btn-voice-cancel" class="btn btn-secondary btn-small">Abbruch</button>
+              <button type="button" id="btn-voice-send" class="btn btn-primary btn-small">Senden</button>
             </div>
-            <span class="internet-badge">REWE Online</span>
           </div>
-          <div id="lookup-comparisons" class="space-y-4"></div>
-          <div id="lookup-internet-list" class="table-wrap hidden">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Produkt</th>
-                  <th>Menge</th>
-                  <th class="text-right">Preis</th>
-                </tr>
-              </thead>
-              <tbody id="lookup-internet-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- View 3: Spar-Optimierer -->
-      <section id="view-optimizer" class="view hidden space-y-8">
-        <div class="view-header">
-          <h2 class="view-title">Spar-Optimierer</h2>
-          <p class="view-subtitle">Alle Katalogprodukte im Vergleich – mit Bon-Daten und REWE-Online-Preisen als Referenz.</p>
-        </div>
-
-        <div id="optimizer-loading" class="panel-card empty-state">
-          <div class="spinner"></div>
-          <p>Lade Preisvergleich…</p>
-        </div>
-
-        <div id="optimizer-empty" class="panel-card empty-state hidden">
-          <div class="empty-icon">🛒</div>
-          <p>Keine Produkte geladen</p>
-          <p class="text-sm text-slate-500">Der Katalog konnte nicht geladen werden</p>
-        </div>
-
-        <div id="optimizer-content" class="hidden space-y-6">
-          <div id="optimizer-summary" class="grid sm:grid-cols-3 gap-4"></div>
-          <div id="optimizer-cards" class="grid md:grid-cols-2 gap-6"></div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
 
-    <footer class="border-t border-white/5 py-6 text-center text-xs text-slate-500">
-      Einkaufs-Tracker · Powered by Express &amp; SQLite
-    </footer>
-  </div>
+    <dialog id="new-chat-dialog" class="sheet">
+      <form method="dialog" class="sheet-inner">
+        <header class="sheet-header"><h2>Neuer Chat</h2><button type="submit" value="cancel" class="icon-btn">×</button></header>
+        <div id="contact-list" class="contact-list"></div>
+      </form>
+    </dialog>
 
-  <script src="app.js?v=6" type="module"></script>
-</body>
+    <dialog id="new-group-dialog" class="sheet">
+      <form id="new-group-form" class="sheet-inner">
+        <header class="sheet-header"><h2>Neue Gruppe</h2><button type="button" id="btn-close-group" class="icon-btn">×</button></header>
+        <div class="group-form-fields">
+          <label><span>Gruppenname</span><input id="group-title" required minlength="2" maxlength="40" placeholder="Name der Gruppe" /></label>
+          <p class="group-pick-label">Mitglieder</p>
+          <div id="group-contact-list" class="contact-list"></div>
+          <button type="submit" class="btn btn-primary">Gruppe erstellen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="poll-dialog" class="sheet">
+      <form id="poll-form" class="sheet-inner">
+        <header class="sheet-header"><h2>Umfrage</h2><button type="button" id="btn-close-poll" class="icon-btn">×</button></header>
+        <div class="group-form-fields">
+          <label><span>Frage</span><input id="poll-question" required maxlength="200" placeholder="Frage eingeben" /></label>
+          <label><span>Antwort 1</span><input class="poll-option" required maxlength="80" /></label>
+          <label><span>Antwort 2</span><input class="poll-option" required maxlength="80" /></label>
+          <label><span>Antwort 3 (optional)</span><input class="poll-option" maxlength="80" /></label>
+          <label><span>Antwort 4 (optional)</span><input class="poll-option" maxlength="80" /></label>
+          <button type="submit" class="btn btn-primary">Senden</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="status-dialog" class="sheet">
+      <form id="status-form" class="sheet-inner">
+        <header class="sheet-header"><h2>Status</h2><button type="button" id="btn-close-status" class="icon-btn">×</button></header>
+        <div class="group-form-fields">
+          <label><span>Text</span><input id="status-text" maxlength="300" placeholder="Was gibt’s Neues?" /></label>
+          <label class="file-label"><span>Bild (optional)</span><input id="status-image" type="file" accept="image/*" /></label>
+          <button type="submit" class="btn btn-primary">Veröffentlichen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="status-viewer" class="status-viewer">
+      <div class="status-viewer-inner">
+        <button type="button" id="btn-close-viewer" class="icon-btn status-close">×</button>
+        <div id="status-viewer-media" class="status-viewer-media"></div>
+        <div class="status-viewer-meta">
+          <strong id="status-viewer-name"></strong>
+          <span id="status-viewer-time"></span>
+          <p id="status-viewer-body"></p>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="privacy-dialog" class="sheet">
+      <form method="dialog" class="sheet-inner privacy-sheet">
+        <header class="sheet-header"><h2>Privatsphäre</h2><button type="submit" value="cancel" class="icon-btn">×</button></header>
+        <div class="group-form-fields privacy-fields">
+          <section class="privacy-block">
+            <h3>Sichtbarkeit</h3>
+            <label class="check-row"><input id="privacy-last-seen" type="checkbox" /><span>„Zuletzt online“ anzeigen</span></label>
+            <p class="privacy-help">Standardmäßig ausgeblendet.</p>
+          </section>
+
+          <section class="privacy-block">
+            <h3>Speicherfrist</h3>
+            <label>
+              <span>Nachrichten automatisch löschen nach</span>
+            <select id="privacy-retention">
+              <option value="7">7 Tagen</option>
+              <option value="30">30 Tagen</option>
+              <option value="90">90 Tagen</option>
+              <option value="180">180 Tagen</option>
+            </select>
+            </label>
+          </section>
+
+          <section class="privacy-block">
+            <h3>Verarbeitung</h3>
+            <label class="check-row"><input id="privacy-restrict" type="checkbox" /><span>Neue Nachrichten und Status pausieren</span></label>
+          </section>
+
+          <section class="privacy-block">
+            <h3>Einwilligungen</h3>
+            <div id="consent-status" class="consent-status"></div>
+            <div class="consent-table">
+              <div class="consent-row">
+                <div>
+                  <strong>Nachrichten</strong>
+                  <span>Chat-Inhalte</span>
+                </div>
+                <div class="consent-row-actions">
+                  <button type="button" id="btn-grant-messages" class="btn btn-secondary btn-small">Erteilen</button>
+                  <button type="button" id="btn-revoke-messages" class="btn btn-secondary btn-small">Widerrufen</button>
+                </div>
+              </div>
+              <div class="consent-row">
+                <div>
+                  <strong>Medien</strong>
+                  <span>Bilder &amp; Sprachnotizen</span>
+                </div>
+                <div class="consent-row-actions">
+                  <button type="button" id="btn-grant-media" class="btn btn-secondary btn-small">Erteilen</button>
+                  <button type="button" id="btn-revoke-media" class="btn btn-secondary btn-small">Widerrufen</button>
+                </div>
+              </div>
+              <div class="consent-row">
+                <div>
+                  <strong>Status</strong>
+                  <span>24 Stunden sichtbar</span>
+                </div>
+                <div class="consent-row-actions">
+                  <button type="button" id="btn-grant-impulses" class="btn btn-secondary btn-small">Erteilen</button>
+                  <button type="button" id="btn-revoke-impulses" class="btn btn-secondary btn-small">Widerrufen</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="privacy-block">
+            <h3>Konto</h3>
+            <button type="button" id="btn-export-data" class="btn btn-secondary">Daten exportieren</button>
+            <button type="button" id="btn-delete-account" class="btn btn-danger">Konto löschen</button>
+            <p class="privacy-help">
+              Details in der <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>
+              und im <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>.
+            </p>
+          </section>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="message-consent-dialog" class="sheet">
+      <form id="message-consent-form" class="sheet-inner">
+        <header class="sheet-header"><h2>Einwilligung nötig</h2></header>
+        <div class="group-form-fields">
+          <p class="privacy-help">
+            Zum Chatten brauchst du die Einwilligung zur Zustellung.
+            Nachrichteninhalte sind Ende-zu-Ende verschlüsselt (Schlüssel nur im Browser).
+            <a href="/datenschutz.html" target="_blank" rel="noopener">Mehr erfahren</a>
+          </p>
+          <label class="check-row"><input id="message-consent-check" type="checkbox" required /><span>Ich willige in die Verarbeitung meiner Nachrichten ein.</span></label>
+          <button type="submit" class="btn btn-primary">Einwilligen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="storage-banner" class="storage-banner is-hidden">
+      <p>Wir speichern nur dein Session-Token lokal. <a href="/datenschutz.html">Datenschutz</a></p>
+      <button type="button" id="btn-accept-storage" class="btn btn-primary btn-small">OK</button>
+    </div>
+    <div id="toast" class="toast is-hidden" role="status"></div>
+
+    <div id="me-avatar" class="is-hidden" aria-hidden="true"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
 </html>

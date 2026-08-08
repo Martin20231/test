@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Datenschutzerklärung — Relay</title>
+    <link rel="stylesheet" href="./style.css" />
+    <style>
+      body { overflow: auto; min-height: 100vh; }
+      main.legal-page {
+        width: min(760px, calc(100% - 32px));
+        margin: 28px auto 48px;
+        background: rgba(247, 249, 252, 0.94);
+        border-radius: 24px;
+        padding: 28px 24px;
+        box-shadow: var(--shadow);
+      }
+      h1, h2, h3 {
+        font-family: var(--font-display);
+        color: var(--ink);
+        letter-spacing: -0.03em;
+      }
+      h1 { margin: 0 0 8px; font-size: 2rem; }
+      h2 { margin: 24px 0 8px; font-size: 1.2rem; }
+      h3 { margin: 16px 0 6px; font-size: 1.05rem; }
+      p, li { color: var(--ink-soft); line-height: 1.55; }
+      .meta { font-size: 0.9rem; margin-bottom: 18px; color: var(--muted); }
+      a { color: var(--accent); }
+      .back {
+        display: inline-block;
+        margin-bottom: 16px;
+        text-decoration: none;
+        font-weight: 700;
+      }
+      .note, .emphasis {
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(21, 34, 56, 0.06);
+        font-size: 0.9rem;
+      }
+      .emphasis { border-left: 4px solid var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main class="legal-page">
+      <a class="back" href="/">← Zurück zu Relay</a>
+      <h1>Datenschutzerklärung</h1>
+      <p class="meta">Stand / Version: <strong>2026-08-08.4</strong> · Messenger „Relay“ · <a href="/impressum.html">Impressum</a></p>
+
+      <h2>1. Verantwortlicher</h2>
+      <p>
+        Relay ist eine Self-Hosting-Anwendung. Verantwortlicher im Sinne der DSGVO ist die Person bzw. Stelle,
+        die diese Instanz betreibt. Kontaktdaten siehe <a href="/impressum.html">Impressum</a>
+        (Angaben gemäß §&nbsp;5 DDG).
+      </p>
+
+      <h2>2. Welche Daten wir verarbeiten</h2>
+      <ul>
+        <li>Kontodaten: Benutzername, Anzeigename, Passwort-Hash, öffentlicher E2E-Schlüssel</li>
+        <li><strong>Chat-Nachrichten als Ciphertext</strong> (Ende-zu-Ende verschlüsselt) sowie Metadaten (Zeit, Zustellung/Gelesen)</li>
+        <li>Medien: verschlüsselte Fotos/Sprachnotizen</li>
+        <li>Status-Beiträge (max. 24 Stunden; serverseitig at-rest)</li>
+        <li>Technische Daten: Session-Token (30 Tage), optional „Zuletzt online“, Einwilligungsnachweise</li>
+      </ul>
+
+      <h2 id="nachrichten">3. Nachrichten und E2E</h2>
+      <div class="emphasis">
+        Text- und Medieninhalte werden <strong>im Browser Ende-zu-Ende verschlüsselt</strong> (ECDH P-256 + AES-GCM).
+        Der Server speichert Ciphertext und kann Inhalte nicht lesen. Private Schlüssel liegen nur im jeweiligen Browser
+        (localStorage). Bei Gerätewechsel ohne Schlüssel-Backup sind alte Nachrichten dort nicht lesbar.
+      </div>
+
+      <h3>3.1 Zwecke</h3>
+      <ul>
+        <li>Zustellung verschlüsselter Nachrichten an Chat-Teilnehmer</li>
+        <li>Bereitstellung von Metadaten, Reaktionen, Umfragen, Anheften</li>
+      </ul>
+
+      <h3>3.2 Rechtsgrundlagen</h3>
+      <ul>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO</strong> — Messenger-Funktion / Zustellung</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO</strong> — Einwilligungen (Policy, Metadaten/Nachrichten, Medien, Status)</li>
+        <li><strong>Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;e DSGVO</strong> — Speicherbegrenzung (Standard 30 Tage, wählbar 7/30/90/180)</li>
+        <li><strong>Art.&nbsp;32 DSGVO</strong> — E2E, Hashing, Session-Timeout, Security-Header</li>
+      </ul>
+
+      <h3>3.3 Einwilligungen (granular)</h3>
+      <ul>
+        <li><strong>policy</strong> — Datenschutzerklärung</li>
+        <li><strong>messages</strong> — Chat-Nachrichten</li>
+        <li><strong>media</strong> — Bilder und Sprachnotizen</li>
+        <li><strong>impulses</strong> — Status (24 Stunden)</li>
+      </ul>
+      <p>
+        Einwilligungen kannst du unter „Privatsphäre“ mit Wirkung für die Zukunft widerrufen
+        (<strong>Art.&nbsp;7 Abs.&nbsp;3 DSGVO</strong>). Bereits rechtmäßig verarbeitete Daten bleiben unberührt,
+        soweit keine Löschung verlangt wird.
+      </p>
+
+      <h3>3.4 Empfänger</h3>
+      <p>
+        Nachrichten nur an Mitglieder des jeweiligen Chats bzw. der Gruppe. Der Instanz-Betreiber kann technisch auf
+        Serverdaten zugreifen. Kein Verkauf, kein Tracking zu Werbezwecken. Keine Weitergabe an Drittland-Dienste
+        für Fonts/Analytics (lokale Schriften).
+      </p>
+
+      <h3>3.5 Speicherdauer Nachrichten</h3>
+      <ul>
+        <li>Standard: 30 Tage, danach automatische Bereinigung inkl. Medienentfernung</li>
+        <li>Individuell: 7/30/90/180 Tage</li>
+        <li>Sofortige Löschung einzelner eigener Nachrichten möglich</li>
+        <li>Kontolöschung: Entfernung eigener Inhalte / Mitgliedschaften (Art.&nbsp;17 DSGVO)</li>
+      </ul>
+
+      <h2>4. Weitere Rechtsgrundlagen</h2>
+      <ul>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b</strong> — Konto, Login, Chat-Funktionen</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a</strong> — Einwilligungen (Policy, Nachrichten, Medien, Status, Mikrofon im Browser)</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f</strong> — berechtigtes Interesse am sicheren Betrieb (Sessions, Security-Header, Orphan-Cleanup)</li>
+        <li><strong>Art.&nbsp;8 DSGVO</strong> — Nutzung ab 16 Jahren</li>
+      </ul>
+
+      <h2>5. Speicherdauer (Überblick)</h2>
+      <ul>
+        <li>Konto: bis zur Löschung</li>
+        <li>Nachrichten: gemäß Aufbewahrungsfrist bzw. manueller/Kontolöschung</li>
+        <li>Status: 24 Stunden</li>
+        <li>Sessions: max. 30 Tage bzw. bis Logout</li>
+        <li>Einwilligungsnachweise: nach Kontolöschung anonymisiert (user_id entfernt)</li>
+        <li>Verwaiste Uploads: periodische Bereinigung</li>
+      </ul>
+
+      <h2>6. Deine Rechte</h2>
+      <ul>
+        <li><strong>Art.&nbsp;15</strong> Auskunft &amp; <strong>Art.&nbsp;20</strong> Datenportabilität (Export in der App)</li>
+        <li><strong>Art.&nbsp;16</strong> Berichtigung</li>
+        <li><strong>Art.&nbsp;17</strong> Löschung (Nachrichten / Konto)</li>
+        <li><strong>Art.&nbsp;18</strong> Einschränkung der Verarbeitung (Schalter in Privatsphäre)</li>
+        <li><strong>Art.&nbsp;7 Abs.&nbsp;3</strong> Widerruf von Einwilligungen</li>
+        <li><strong>Art.&nbsp;21</strong> Widerspruch, soweit einschlägig</li>
+        <li>Beschwerde bei einer Datenschutz-Aufsichtsbehörde (z.&nbsp;B. Landesbeauftragte für Datenschutz)</li>
+      </ul>
+
+      <h2>7. Datenschutz durch Technikgestaltung</h2>
+      <ul>
+        <li>„Zuletzt online“ standardmäßig aus</li>
+        <li>Granulare Einwilligungen bei Registrierung</li>
+        <li>Wählbare Aufbewahrungsfristen</li>
+        <li>Verschlüsselung: E2E für Chat-Inhalte; private Schlüssel nur im Browser</li>
+        <li>Keine Google-Fonts / externe Tracker</li>
+      </ul>
+
+      <h2>8. Sicherheit</h2>
+      <p>
+        Passwörter: scrypt. Sessions: zufällige Tokens mit Ablauf. Uploads: Größenlimit.
+        Security-Header (CSP, X-Frame-Options, Referrer-Policy). HTTPS für Produktivbetrieb empfohlen.
+        Chat-Inhalte: <strong>Ende-zu-Ende-Verschlüsselung</strong> (Client). Hosting möglichst in der EU.
+      </p>
+
+      <h2>9. Browser-Speicherung</h2>
+      <p>
+        Technisch notwendig: Session-Token in <code>localStorage</code> (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f bzw. §&nbsp;25 Abs.&nbsp;2 TDDDG).
+        Kein Tracking-Cookie. Beim Logout wird das Token entfernt.
+      </p>
+
+      <div class="note">
+        Für öffentlichen Produktivbetrieb: Impressum mit echten Daten, Hosting möglichst in der EU,
+        ggf. Auftragsverarbeitungsvertrag mit dem Hosting-Anbieter und konkrete Kontaktdaten des Verantwortlichen ergänzen.
+      </div>
+    </main>
+  </body>
+</html>
