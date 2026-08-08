@@ -12,11 +12,16 @@ import {
   deleteSession,
   listUsers,
   updateStatus,
+  touchLastSeen,
   findOrCreateDirectConversation,
+  createGroupConversation,
   listConversations,
   getConversationForUser,
   listMessages,
   createMessage,
+  editMessage,
+  deleteMessage,
+  setReaction,
   markMessagesDelivered,
   markMessagesRead,
   getConversationMemberIds,
@@ -29,33 +34,15 @@ const PORT = process.env.PORT ?? 3000;
 
 initDatabase();
 
-const onlineUsers = new Map(); // userId -> Set of socket ids
+const onlineUsers = new Map();
 
 const io = new Server(httpServer, {
-  cors: {
-    origin: (origin, callback) => {
-      if (
-        !origin ||
-        origin.includes('github.io') ||
-        origin.startsWith('http://localhost') ||
-        origin.startsWith('http://127.0.0.1')
-      ) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
-  },
+  cors: { origin: true },
 });
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (
-    origin &&
-    (origin.includes('github.io') ||
-      origin.startsWith('http://localhost') ||
-      origin.startsWith('http://127.0.0.1'))
-  ) {
+  if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -64,7 +51,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '64kb' }));
 app.use(express.static(join(__dirname, 'public')));
 
 function authMiddleware(req, res, next) {
@@ -82,6 +69,13 @@ function authMiddleware(req, res, next) {
 function sendError(res, error) {
   const status = error.status || 500;
   res.status(status).json({ error: error.message || 'Interner Fehler.' });
+}
+
+function emitToConversation(conversationId, event, payload) {
+  const memberIds = getConversationMemberIds(conversationId);
+  for (const memberId of memberIds) {
+    io.to(`user:${memberId}`).emit(event, payload);
+  }
 }
 
 app.get('/health', (_req, res) => {
@@ -113,6 +107,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/logout', authMiddleware, (req, res) => {
+  touchLastSeen(req.user.id);
   deleteSession(req.token);
   res.json({ ok: true });
 });
@@ -147,6 +142,16 @@ app.get('/api/conversations', authMiddleware, (req, res) => {
 
 app.post('/api/conversations', authMiddleware, (req, res) => {
   try {
+    if (req.body.type === 'group') {
+      const conversation = createGroupConversation(
+        req.user.id,
+        req.body.title,
+        req.body.member_ids || []
+      );
+      emitToConversation(conversation.id, 'conversation:upsert', { conversation_id: conversation.id });
+      return res.status(201).json({ conversation });
+    }
+
     const peerId = req.body.user_id || req.body.peer_id;
     if (!peerId) {
       return res.status(400).json({ error: 'user_id fehlt.' });
@@ -174,24 +179,47 @@ app.get('/api/conversations/:id/messages', authMiddleware, (req, res) => {
 
 app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
   try {
-    const message = createMessage(req.params.id, req.user.id, req.body.body);
-    const memberIds = getConversationMemberIds(req.params.id);
-
-    for (const memberId of memberIds) {
-      io.to(`user:${memberId}`).emit('message:new', {
-        message,
-        conversation_id: req.params.id,
-      });
-    }
-
-    const peerOnline = memberIds.some(
-      (id) => id !== req.user.id && onlineUsers.has(id)
+    const message = createMessage(
+      req.params.id,
+      req.user.id,
+      req.body.body,
+      req.body.reply_to_id || null
     );
-    if (peerOnline) {
-      message.delivered_at = message.delivered_at || new Date().toISOString();
-    }
-
+    emitToConversation(req.params.id, 'message:new', {
+      message,
+      conversation_id: req.params.id,
+    });
     res.status(201).json({ message });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.patch('/api/messages/:id', authMiddleware, (req, res) => {
+  try {
+    const message = editMessage(req.params.id, req.user.id, req.body.body);
+    emitToConversation(message.conversation_id, 'message:updated', { message });
+    res.json({ message });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.delete('/api/messages/:id', authMiddleware, (req, res) => {
+  try {
+    const message = deleteMessage(req.params.id, req.user.id);
+    emitToConversation(message.conversation_id, 'message:updated', { message });
+    res.json({ message });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/messages/:id/reactions', authMiddleware, (req, res) => {
+  try {
+    const message = setReaction(req.params.id, req.user.id, req.body.emoji);
+    emitToConversation(message.conversation_id, 'message:updated', { message });
+    res.json({ message });
   } catch (error) {
     sendError(res, error);
   }
@@ -199,18 +227,18 @@ app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
 
 app.post('/api/conversations/:id/read', authMiddleware, (req, res) => {
   try {
-    const updated = markMessagesRead(req.params.id, req.user.id);
+    const messageIds = markMessagesRead(req.params.id, req.user.id);
     const memberIds = getConversationMemberIds(req.params.id);
     for (const memberId of memberIds) {
       if (memberId === req.user.id) continue;
       io.to(`user:${memberId}`).emit('message:read', {
         conversation_id: req.params.id,
-        message_ids: updated.map((m) => m.id),
+        message_ids: messageIds,
         reader_id: req.user.id,
-        read_at: updated[0]?.read_at || null,
+        read_at: new Date().toISOString(),
       });
     }
-    res.json({ updated: updated.length });
+    res.json({ updated: messageIds.length });
   } catch (error) {
     sendError(res, error);
   }
@@ -235,7 +263,6 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('presence:online', { user_id: userId });
   }
   onlineUsers.get(userId).add(socket.id);
-
   socket.emit('presence:snapshot', { online_user_ids: [...onlineUsers.keys()] });
 
   socket.on('typing:start', ({ conversation_id }) => {
@@ -247,6 +274,7 @@ io.on('connection', (socket) => {
       io.to(`user:${memberId}`).emit('typing:start', {
         conversation_id,
         user_id: userId,
+        display_name: socket.user.display_name,
       });
     }
   });
@@ -270,7 +298,8 @@ io.on('connection', (socket) => {
     sockets.delete(socket.id);
     if (sockets.size === 0) {
       onlineUsers.delete(userId);
-      socket.broadcast.emit('presence:offline', { user_id: userId });
+      const lastSeen = touchLastSeen(userId);
+      socket.broadcast.emit('presence:offline', { user_id: userId, last_seen_at: lastSeen });
     }
   });
 });
