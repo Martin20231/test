@@ -59,12 +59,83 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <button type="button" id="btn-privacy" class="text-btn">Privatsphäre</button>
-          <button type="button" id="btn-new-group" class="text-btn">Kreis</button>
-          <button type="button" id="btn-new-chat" class="btn btn-primary btn-small">Neuer Dialog</button>
-          <button type="button" id="btn-logout" class="icon-btn" title="Abmelden" aria-label="Abmelden">⎋</button>
+          <button type="button" id="btn-new-chat" class="btn btn-primary btn-small topbar-quick">Neuer Dialog</button>
+          <button
+            type="button"
+            id="btn-menu"
+            class="hamburger-btn"
+            aria-label="Menü öffnen"
+            aria-expanded="false"
+            aria-controls="app-menu"
+          >
+            <span class="hamburger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+          </button>
         </div>
       </header>
+
+      <div id="menu-backdrop" class="menu-backdrop is-hidden" hidden></div>
+      <nav id="app-menu" class="app-menu" aria-hidden="true" aria-label="Hauptmenü">
+        <header class="app-menu-header">
+          <div>
+            <div class="app-menu-kicker">Menü</div>
+            <strong id="menu-user-name">Konto</strong>
+          </div>
+          <button type="button" id="btn-menu-close" class="icon-btn" aria-label="Menü schließen">×</button>
+        </header>
+
+        <div class="app-menu-body">
+          <section class="menu-section">
+            <h3>Chats</h3>
+            <button type="button" class="menu-item" data-menu-action="new-chat">
+              <span class="menu-item-label">Neuer Dialog</span>
+              <span class="menu-item-hint">1:1 starten</span>
+            </button>
+            <button type="button" class="menu-item" data-menu-action="new-group" id="btn-new-group">
+              <span class="menu-item-label">Neuer Kreis</span>
+              <span class="menu-item-hint">Gruppe anlegen</span>
+            </button>
+          </section>
+
+          <section class="menu-section">
+            <h3>Impulse</h3>
+            <button type="button" class="menu-item" data-menu-action="add-status">
+              <span class="menu-item-label">Impuls posten</span>
+              <span class="menu-item-hint">24 Stunden sichtbar</span>
+            </button>
+          </section>
+
+          <section class="menu-section">
+            <h3>Privatsphäre &amp; Konto</h3>
+            <button type="button" class="menu-item" data-menu-action="privacy" id="btn-privacy">
+              <span class="menu-item-label">Datenschutz-Einstellungen</span>
+              <span class="menu-item-hint">Einwilligungen, Fristen, Art.&nbsp;18</span>
+            </button>
+            <button type="button" class="menu-item" data-menu-action="export">
+              <span class="menu-item-label">Daten exportieren</span>
+              <span class="menu-item-hint">Art.&nbsp;15 / 20 DSGVO</span>
+            </button>
+          </section>
+
+          <section class="menu-section">
+            <h3>Rechtliches</h3>
+            <a class="menu-item" href="/datenschutz.html" target="_blank" rel="noopener">
+              <span class="menu-item-label">Datenschutzerklärung</span>
+              <span class="menu-item-hint">Version 2026-08-08.3</span>
+            </a>
+            <a class="menu-item" href="/impressum.html" target="_blank" rel="noopener">
+              <span class="menu-item-label">Impressum</span>
+              <span class="menu-item-hint">§&nbsp;5 DDG</span>
+            </a>
+          </section>
+
+          <section class="menu-section menu-section-danger">
+            <button type="button" class="menu-item menu-item-danger" data-menu-action="logout" id="btn-logout">
+              <span class="menu-item-label">Abmelden</span>
+              <span class="menu-item-hint">Session beenden</span>
+            </button>
+          </section>
+        </div>
+      </nav>
 
       <div class="workspace">
         <aside class="rail">
@@ -119,7 +190,7 @@
 
             <form id="composer" class="composer">
               <button type="button" id="btn-attach" class="icon-btn" title="Bild" aria-label="Bild senden">▣</button>
-              <button type="button" id="btn-poll" class="icon-btn" title="Umfrage" aria-label="Umfrage">☰</button>
+              <button type="button" id="btn-poll" class="icon-btn" title="Umfrage" aria-label="Umfrage">≡</button>
               <input id="image-input" type="file" accept="image/*" hidden />
               <input id="message-input" type="text" maxlength="2000" placeholder="Nachricht an den Kreis…" autocomplete="off" />
               <button type="button" id="btn-voice" class="icon-btn" title="Sprachnotiz" aria-label="Sprachnotiz">◉</button>
@@ -193,41 +264,80 @@
     </dialog>
 
     <dialog id="privacy-dialog" class="sheet">
-      <form method="dialog" class="sheet-inner">
+      <form method="dialog" class="sheet-inner privacy-sheet">
         <header class="sheet-header"><h2>Privatsphäre</h2><button type="submit" value="cancel" class="icon-btn">×</button></header>
         <div class="group-form-fields privacy-fields">
-          <label class="check-row"><input id="privacy-last-seen" type="checkbox" /><span>„Zuletzt online“ anzeigen (Privacy by Default: aus)</span></label>
-          <label>
-            <span>Nachrichten-Aufbewahrung (Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;e)</span>
-            <select id="privacy-retention">
-              <option value="30">30 Tage</option>
-              <option value="90">90 Tage</option>
-              <option value="180">180 Tage</option>
-              <option value="365">365 Tage</option>
-            </select>
-          </label>
-          <label class="check-row"><input id="privacy-restrict" type="checkbox" /><span>Verarbeitung einschränken (Art.&nbsp;18 DSGVO) — pausiert neue Nachrichten/Impulse</span></label>
+          <section class="privacy-block">
+            <h3>Sichtbarkeit</h3>
+            <label class="check-row"><input id="privacy-last-seen" type="checkbox" /><span>„Zuletzt online“ anzeigen</span></label>
+            <p class="privacy-help">Standard aus (Privacy by Default).</p>
+          </section>
 
-          <p class="privacy-section-title">Einwilligungen</p>
-          <div id="consent-status" class="consent-status"></div>
-          <div class="privacy-actions-row">
-            <button type="button" id="btn-revoke-messages" class="btn btn-secondary btn-small">Nachrichten widerrufen</button>
-            <button type="button" id="btn-revoke-media" class="btn btn-secondary btn-small">Medien widerrufen</button>
-            <button type="button" id="btn-revoke-impulses" class="btn btn-secondary btn-small">Impulse widerrufen</button>
-          </div>
-          <div class="privacy-actions-row">
-            <button type="button" id="btn-grant-messages" class="btn btn-secondary btn-small">Nachrichten erteilen</button>
-            <button type="button" id="btn-grant-media" class="btn btn-secondary btn-small">Medien erteilen</button>
-            <button type="button" id="btn-grant-impulses" class="btn btn-secondary btn-small">Impulse erteilen</button>
-          </div>
+          <section class="privacy-block">
+            <h3>Speicherbegrenzung</h3>
+            <label>
+              <span>Nachrichten-Aufbewahrung</span>
+              <select id="privacy-retention">
+                <option value="30">30 Tage</option>
+                <option value="90">90 Tage</option>
+                <option value="180">180 Tage</option>
+                <option value="365">365 Tage</option>
+              </select>
+            </label>
+            <p class="privacy-help">Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;e DSGVO.</p>
+          </section>
 
-          <p class="privacy-help">
-            Rechtsgrundlagen: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO. Session: 30 Tage.
-            <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
-            <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
-          </p>
-          <button type="button" id="btn-export-data" class="btn btn-secondary">Daten exportieren (Art.&nbsp;15/20)</button>
-          <button type="button" id="btn-delete-account" class="btn btn-danger">Konto löschen (Art.&nbsp;17)</button>
+          <section class="privacy-block">
+            <h3>Einschränkung</h3>
+            <label class="check-row"><input id="privacy-restrict" type="checkbox" /><span>Verarbeitung einschränken (Art.&nbsp;18) — pausiert neue Nachrichten &amp; Impulse</span></label>
+          </section>
+
+          <section class="privacy-block">
+            <h3>Einwilligungen</h3>
+            <div id="consent-status" class="consent-status"></div>
+            <div class="consent-table">
+              <div class="consent-row">
+                <div>
+                  <strong>Nachrichten</strong>
+                  <span>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b</span>
+                </div>
+                <div class="consent-row-actions">
+                  <button type="button" id="btn-grant-messages" class="btn btn-secondary btn-small">Erteilen</button>
+                  <button type="button" id="btn-revoke-messages" class="btn btn-secondary btn-small">Widerrufen</button>
+                </div>
+              </div>
+              <div class="consent-row">
+                <div>
+                  <strong>Medien</strong>
+                  <span>Bilder &amp; Sprachnotizen</span>
+                </div>
+                <div class="consent-row-actions">
+                  <button type="button" id="btn-grant-media" class="btn btn-secondary btn-small">Erteilen</button>
+                  <button type="button" id="btn-revoke-media" class="btn btn-secondary btn-small">Widerrufen</button>
+                </div>
+              </div>
+              <div class="consent-row">
+                <div>
+                  <strong>Impulse</strong>
+                  <span>24h-Status</span>
+                </div>
+                <div class="consent-row-actions">
+                  <button type="button" id="btn-grant-impulses" class="btn btn-secondary btn-small">Erteilen</button>
+                  <button type="button" id="btn-revoke-impulses" class="btn btn-secondary btn-small">Widerrufen</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="privacy-block">
+            <h3>Deine Rechte</h3>
+            <button type="button" id="btn-export-data" class="btn btn-secondary">Daten exportieren (Art.&nbsp;15/20)</button>
+            <button type="button" id="btn-delete-account" class="btn btn-danger">Konto löschen (Art.&nbsp;17)</button>
+            <p class="privacy-help">
+              <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> ·
+              <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
+            </p>
+          </section>
         </div>
       </form>
     </dialog>

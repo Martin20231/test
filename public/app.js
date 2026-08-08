@@ -63,6 +63,11 @@ const els = {
   btnPrivacy: document.getElementById('btn-privacy'),
   btnEmptyNew: document.getElementById('btn-empty-new'),
   btnLogout: document.getElementById('btn-logout'),
+  btnMenu: document.getElementById('btn-menu'),
+  btnMenuClose: document.getElementById('btn-menu-close'),
+  appMenu: document.getElementById('app-menu'),
+  menuBackdrop: document.getElementById('menu-backdrop'),
+  menuUserName: document.getElementById('menu-user-name'),
   btnBack: document.getElementById('btn-back'),
   newChatDialog: document.getElementById('new-chat-dialog'),
   contactList: document.getElementById('contact-list'),
@@ -316,12 +321,115 @@ function showApp() {
   els.appScreen.classList.remove('is-hidden');
   setAvatar(els.meAvatar, state.user, null, { online: true });
   els.meName.textContent = state.user.display_name;
+  if (els.menuUserName) {
+    els.menuUserName.textContent = state.user.display_name || state.user.username;
+  }
 }
 
 function showAuth() {
+  closeMenu();
   els.appScreen.classList.add('is-hidden');
   els.authScreen.classList.remove('is-hidden');
   els.appScreen.classList.remove('show-chat');
+}
+
+function openMenu() {
+  if (!els.appMenu || !els.btnMenu) return;
+  els.appMenu.classList.add('is-open');
+  els.appMenu.setAttribute('aria-hidden', 'false');
+  els.menuBackdrop?.classList.remove('is-hidden');
+  els.menuBackdrop?.removeAttribute('hidden');
+  requestAnimationFrame(() => els.menuBackdrop?.classList.add('is-open'));
+  els.btnMenu.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('menu-open');
+}
+
+function closeMenu() {
+  if (!els.appMenu || !els.btnMenu) return;
+  els.appMenu.classList.remove('is-open');
+  els.appMenu.setAttribute('aria-hidden', 'true');
+  els.menuBackdrop?.classList.remove('is-open');
+  els.btnMenu.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('menu-open');
+  window.setTimeout(() => {
+    if (!els.appMenu.classList.contains('is-open')) {
+      els.menuBackdrop?.classList.add('is-hidden');
+      els.menuBackdrop?.setAttribute('hidden', '');
+    }
+  }, 220);
+}
+
+function toggleMenu() {
+  if (els.appMenu?.classList.contains('is-open')) closeMenu();
+  else openMenu();
+}
+
+async function exportUserDataDownload() {
+  const res = await fetch('/api/me/export', {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Export fehlgeschlagen');
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `relay-datenexport-${state.user.username}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function handleLogout() {
+  try {
+    await api('/api/auth/logout', { method: 'POST', body: {} });
+  } catch {
+    /* ignore */
+  }
+  state.socket?.disconnect();
+  state.socket = null;
+  state.token = null;
+  state.user = null;
+  state.conversations = [];
+  state.activeConversationId = null;
+  localStorage.removeItem(TOKEN_KEY);
+  showAuth();
+}
+
+async function handleMenuAction(action) {
+  closeMenu();
+  if (action === 'new-chat') {
+    await refreshUsers();
+    openNewChatDialog();
+    return;
+  }
+  if (action === 'new-group') {
+    await refreshUsers();
+    openNewGroupDialog();
+    return;
+  }
+  if (action === 'add-status') {
+    if (!ensureImpulseConsent()) return;
+    els.statusText.value = '';
+    els.statusImage.value = '';
+    els.statusDialog.showModal();
+    return;
+  }
+  if (action === 'privacy') {
+    openPrivacyDialog();
+    return;
+  }
+  if (action === 'export') {
+    try {
+      await exportUserDataDownload();
+      showToast('Datenexport gestartet');
+    } catch (error) {
+      showToast(error.message);
+    }
+    return;
+  }
+  if (action === 'logout') {
+    await handleLogout();
+  }
 }
 
 function connectSocket() {
@@ -1240,20 +1348,25 @@ els.registerForm.addEventListener('submit', async (event) => {
   }
 });
 
-els.btnLogout.addEventListener('click', async () => {
-  try {
-    await api('/api/auth/logout', { method: 'POST', body: {} });
-  } catch {
-    /* ignore */
+els.btnMenu?.addEventListener('click', () => toggleMenu());
+els.btnMenuClose?.addEventListener('click', () => closeMenu());
+els.menuBackdrop?.addEventListener('click', () => closeMenu());
+
+els.appMenu?.addEventListener('click', async (event) => {
+  const target = event.target.closest('[data-menu-action], a.menu-item');
+  if (!target) return;
+  if (target.matches('a.menu-item')) {
+    closeMenu();
+    return;
   }
-  state.socket?.disconnect();
-  state.socket = null;
-  state.token = null;
-  state.user = null;
-  state.conversations = [];
-  state.activeConversationId = null;
-  localStorage.removeItem(TOKEN_KEY);
-  showAuth();
+  event.preventDefault();
+  await handleMenuAction(target.getAttribute('data-menu-action'));
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && els.appMenu?.classList.contains('is-open')) {
+    closeMenu();
+  }
 });
 
 els.btnNewChat.addEventListener('click', async () => {
@@ -1264,15 +1377,6 @@ els.btnNewChat.addEventListener('click', async () => {
 els.btnEmptyNew.addEventListener('click', async () => {
   await refreshUsers();
   openNewChatDialog();
-});
-
-els.btnNewGroup.addEventListener('click', async () => {
-  await refreshUsers();
-  openNewGroupDialog();
-});
-
-els.btnPrivacy.addEventListener('click', () => {
-  openPrivacyDialog();
 });
 
 els.privacyLastSeen.addEventListener('change', async () => {
@@ -1347,18 +1451,7 @@ els.messageConsentForm.addEventListener('submit', async (event) => {
 
 els.btnExportData.addEventListener('click', async () => {
   try {
-    const res = await fetch('/api/me/export', {
-      headers: { Authorization: `Bearer ${state.token}` },
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Export fehlgeschlagen');
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `relay-datenexport-${state.user.username}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await exportUserDataDownload();
     showToast('Datenexport gestartet');
   } catch (error) {
     showToast(error.message);
