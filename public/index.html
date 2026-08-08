@@ -54,7 +54,15 @@
           </label>
           <label>
             <span>Passwort</span>
-            <input name="password" type="password" required minlength="4" placeholder="mindestens 4 Zeichen" />
+            <input name="password" type="password" required minlength="8" placeholder="mindestens 8 Zeichen" />
+          </label>
+          <label class="check-row">
+            <input name="age_confirmed" type="checkbox" required />
+            <span>Ich bin mindestens 16 Jahre alt.</span>
+          </label>
+          <label class="check-row">
+            <input name="privacy_consent" type="checkbox" required />
+            <span>Ich stimme der <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> zu.</span>
           </label>
           <button type="submit" class="btn btn-primary">Konto erstellen</button>
         </form>
@@ -65,6 +73,7 @@
           <strong>Demo-Accounts</strong>
           <span>anna / ben / clara / david — Passwort: <code>demo</code></span>
           <span>Tipp: Zwei Browserfenster öffnen und live chatten.</span>
+          <a href="/datenschutz.html">Datenschutz</a>
         </aside>
       </div>
     </section>
@@ -80,6 +89,11 @@
             </div>
           </div>
           <div class="sidebar-actions">
+            <button type="button" id="btn-privacy" class="icon-btn" title="Privatsphäre" aria-label="Privatsphäre">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            </button>
             <button type="button" id="btn-new-group" class="icon-btn" title="Neue Gruppe" aria-label="Neue Gruppe">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -252,6 +266,35 @@
         </div>
       </div>
     </dialog>
+
+    <dialog id="privacy-dialog" class="sheet">
+      <form method="dialog" class="sheet-inner">
+        <header class="sheet-header">
+          <h2>Privatsphäre</h2>
+          <button type="submit" value="cancel" class="icon-btn" aria-label="Schließen">×</button>
+        </header>
+        <div class="group-form-fields privacy-fields">
+          <label class="check-row">
+            <input id="privacy-last-seen" type="checkbox" />
+            <span>„Zuletzt online“ für andere anzeigen</span>
+          </label>
+          <p class="privacy-help">
+            Nach DSGVO kannst du deine Daten exportieren oder dein Konto löschen.
+            Details: <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>
+          </p>
+          <button type="button" id="btn-export-data" class="btn btn-secondary">Meine Daten exportieren</button>
+          <button type="button" id="btn-delete-account" class="btn btn-danger">Konto unwiderruflich löschen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="storage-banner" class="storage-banner is-hidden" role="dialog" aria-live="polite">
+      <p>
+        Relay speichert nur ein technisch notwendiges Session-Token im Browser (kein Tracking).
+        Mehr Infos in der <a href="/datenschutz.html">Datenschutzerklärung</a>.
+      </p>
+      <button type="button" id="btn-accept-storage" class="btn btn-primary">Verstanden</button>
+    </div>
 
     <div id="toast" class="toast is-hidden" role="status"></div>
 

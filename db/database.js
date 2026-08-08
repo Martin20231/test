@@ -25,15 +25,27 @@ export function initDatabase() {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
-      id            TEXT PRIMARY KEY,
-      username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
-      display_name  TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      password_salt TEXT NOT NULL,
-      avatar_color  TEXT NOT NULL,
-      status        TEXT NOT NULL DEFAULT '',
-      last_seen_at  TEXT,
-      created_at    TEXT NOT NULL
+      id                    TEXT PRIMARY KEY,
+      username              TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      display_name          TEXT NOT NULL,
+      password_hash         TEXT NOT NULL,
+      password_salt         TEXT NOT NULL,
+      avatar_color          TEXT NOT NULL,
+      status                TEXT NOT NULL DEFAULT '',
+      last_seen_at          TEXT,
+      show_last_seen        INTEGER NOT NULL DEFAULT 1,
+      privacy_consent_at    TEXT,
+      privacy_consent_version TEXT,
+      created_at            TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS privacy_consents (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+      version    TEXT NOT NULL,
+      accepted_at TEXT NOT NULL,
+      ip_hash    TEXT,
+      user_agent TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -123,6 +135,15 @@ function migrateSchema(database) {
   if (!userCols.includes('last_seen_at')) {
     database.exec('ALTER TABLE users ADD COLUMN last_seen_at TEXT');
   }
+  if (!userCols.includes('show_last_seen')) {
+    database.exec('ALTER TABLE users ADD COLUMN show_last_seen INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!userCols.includes('privacy_consent_at')) {
+    database.exec('ALTER TABLE users ADD COLUMN privacy_consent_at TEXT');
+  }
+  if (!userCols.includes('privacy_consent_version')) {
+    database.exec('ALTER TABLE users ADD COLUMN privacy_consent_version TEXT');
+  }
 
   const convCols = tableColumns(database, 'conversations');
   if (!convCols.includes('type')) {
@@ -187,7 +208,11 @@ const AVATAR_COLORS = [
   '#386641',
 ];
 
-const ALLOWED_REACTIONS = new Set(['❤️', '👍', '😂', '😮', '😢', '🔥']);
+const PRIVACY_POLICY_VERSION = '2026-08-08';
+
+export function getPrivacyPolicyVersion() {
+  return PRIVACY_POLICY_VERSION;
+}
 
 function pickAvatarColor(username) {
   const digest = createHash('sha256').update(username.toLowerCase()).digest();
@@ -227,7 +252,7 @@ function seedDemoUsers(database) {
   }
 }
 
-export function createUser({ username, displayName, password }) {
+export function createUser({ username, displayName, password, privacyConsent, ageConfirmed, requestMeta = {} }) {
   const cleanUser = String(username || '')
     .trim()
     .toLowerCase()
@@ -240,8 +265,16 @@ export function createUser({ username, displayName, password }) {
   if (cleanName.length < 2 || cleanName.length > 40) {
     throw Object.assign(new Error('Anzeigename muss 2–40 Zeichen haben.'), { status: 400 });
   }
-  if (String(password || '').length < 4) {
-    throw Object.assign(new Error('Passwort muss mindestens 4 Zeichen haben.'), { status: 400 });
+  if (String(password || '').length < 8) {
+    throw Object.assign(new Error('Passwort muss mindestens 8 Zeichen haben.'), { status: 400 });
+  }
+  if (!ageConfirmed) {
+    throw Object.assign(new Error('Du musst bestätigen, mindestens 16 Jahre alt zu sein.'), {
+      status: 400,
+    });
+  }
+  if (!privacyConsent) {
+    throw Object.assign(new Error('Bitte der Datenschutzerklärung zustimmen.'), { status: 400 });
   }
 
   const existing = getDb().prepare('SELECT id FROM users WHERE username = ?').get(cleanUser);
@@ -250,6 +283,7 @@ export function createUser({ username, displayName, password }) {
   }
 
   const { hash, salt } = hashPassword(password);
+  const consentAt = nowIso();
   const user = {
     id: newId('u_'),
     username: cleanUser,
@@ -257,21 +291,46 @@ export function createUser({ username, displayName, password }) {
     avatar_color: pickAvatarColor(cleanUser),
     status: '',
     last_seen_at: null,
-    created_at: nowIso(),
+    show_last_seen: 1,
+    privacy_consent_at: consentAt,
+    privacy_consent_version: PRIVACY_POLICY_VERSION,
+    created_at: consentAt,
   };
 
-  getDb()
-    .prepare(
-      `INSERT INTO users (id, username, display_name, password_hash, password_salt, avatar_color, status, last_seen_at, created_at)
-       VALUES (@id, @username, @display_name, @password_hash, @password_salt, @avatar_color, @status, @last_seen_at, @created_at)`
-    )
-    .run({
-      ...user,
-      password_hash: hash,
-      password_salt: salt,
-    });
+  const tx = getDb().transaction(() => {
+    getDb()
+      .prepare(
+        `INSERT INTO users (
+           id, username, display_name, password_hash, password_salt, avatar_color, status,
+           last_seen_at, show_last_seen, privacy_consent_at, privacy_consent_version, created_at
+         ) VALUES (
+           @id, @username, @display_name, @password_hash, @password_salt, @avatar_color, @status,
+           @last_seen_at, @show_last_seen, @privacy_consent_at, @privacy_consent_version, @created_at
+         )`
+      )
+      .run({
+        ...user,
+        password_hash: hash,
+        password_salt: salt,
+      });
 
-  return publicUser(user);
+    getDb()
+      .prepare(
+        `INSERT INTO privacy_consents (id, user_id, version, accepted_at, ip_hash, user_agent)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        newId('pc_'),
+        user.id,
+        PRIVACY_POLICY_VERSION,
+        consentAt,
+        requestMeta.ipHash || null,
+        String(requestMeta.userAgent || '').slice(0, 300) || null
+      );
+  });
+  tx();
+
+  return publicUser(user, { includePrivate: true });
 }
 
 export function authenticateUser(username, password) {
@@ -283,7 +342,7 @@ export function authenticateUser(username, password) {
     throw Object.assign(new Error('Benutzername oder Passwort ist falsch.'), { status: 401 });
   }
 
-  return publicUser(user);
+  return publicUser(user, { includePrivate: true });
 }
 
 export function createSession(userId) {
@@ -304,7 +363,7 @@ export function getUserByToken(token) {
        WHERE s.token = ?`
     )
     .get(token);
-  return row ? publicUser(row) : null;
+  return row ? publicUser(row, { includePrivate: true }) : null;
 }
 
 export function deleteSession(token) {
@@ -314,24 +373,33 @@ export function deleteSession(token) {
 export function listUsers(excludeUserId) {
   return getDb()
     .prepare(
-      `SELECT id, username, display_name, avatar_color, status, last_seen_at, created_at
+      `SELECT id, username, display_name, avatar_color, status, last_seen_at, show_last_seen, created_at
        FROM users
        WHERE id != ?
        ORDER BY display_name COLLATE NOCASE`
     )
     .all(excludeUserId)
-    .map(publicUser);
+    .map((row) => publicUser(row, { forPeer: true }));
 }
 
-export function getUserById(id) {
+export function getUserById(id, { includePrivate = false, forPeer = false } = {}) {
   const row = getDb().prepare('SELECT * FROM users WHERE id = ?').get(id);
-  return row ? publicUser(row) : null;
+  return row ? publicUser(row, { includePrivate, forPeer }) : null;
 }
 
 export function updateStatus(userId, status) {
   const clean = String(status || '').trim().slice(0, 80);
   getDb().prepare('UPDATE users SET status = ? WHERE id = ?').run(clean, userId);
-  return getUserById(userId);
+  return getUserById(userId, { includePrivate: true });
+}
+
+export function updatePrivacySettings(userId, { showLastSeen } = {}) {
+  if (typeof showLastSeen === 'boolean') {
+    getDb()
+      .prepare('UPDATE users SET show_last_seen = ? WHERE id = ?')
+      .run(showLastSeen ? 1 : 0, userId);
+  }
+  return getUserById(userId, { includePrivate: true });
 }
 
 export function touchLastSeen(userId) {
@@ -454,14 +522,14 @@ export function getConversationForUser(conversationId, userId) {
 
   const members = getDb()
     .prepare(
-      `SELECT u.id, u.username, u.display_name, u.avatar_color, u.status, u.last_seen_at, u.created_at
+      `SELECT u.id, u.username, u.display_name, u.avatar_color, u.status, u.last_seen_at, u.show_last_seen, u.created_at
        FROM conversation_members m
        JOIN users u ON u.id = m.user_id
        WHERE m.conversation_id = ?
        ORDER BY u.display_name COLLATE NOCASE`
     )
     .all(conversationId)
-    .map(publicUser);
+    .map((row) => publicUser(row, { forPeer: true }));
 
   const peer =
     conversation.type === 'direct'
@@ -741,10 +809,11 @@ export function deleteMessage(messageId, userId) {
   }
 
   getDb()
-    .prepare('UPDATE messages SET deleted_at = ?, body = ? WHERE id = ?')
+    .prepare('UPDATE messages SET deleted_at = ?, body = ?, media_url = NULL WHERE id = ?')
     .run(nowIso(), '', messageId);
 
-  return getMessageById(messageId);
+  const message = getMessageById(messageId);
+  return { ...message, media_url_deleted: row.media_url || null };
 }
 
 export function setReaction(messageId, userId, emoji) {
@@ -940,14 +1009,201 @@ export function markStatusViewed(statusId, viewerId) {
   return getStatusById(statusId, viewerId);
 }
 
-function publicUser(row) {
+export function exportUserData(userId) {
+  const user = getDb().prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) {
+    throw Object.assign(new Error('Benutzer nicht gefunden.'), { status: 404 });
+  }
+
+  const consents = getDb()
+    .prepare(
+      `SELECT id, version, accepted_at, ip_hash, user_agent
+       FROM privacy_consents WHERE user_id = ? ORDER BY accepted_at DESC`
+    )
+    .all(userId);
+
+  const conversations = listConversations(userId).map((c) => ({
+    id: c.id,
+    type: c.type,
+    title: c.title,
+    created_at: c.created_at,
+    members: (c.members || []).map((m) => ({
+      id: m.id,
+      username: m.username,
+      display_name: m.display_name,
+    })),
+  }));
+
+  const messages = getDb()
+    .prepare(
+      `SELECT id, conversation_id, body, type, media_url, media_duration_ms, reply_to_id,
+              created_at, edited_at, deleted_at, delivered_at, read_at
+       FROM messages
+       WHERE sender_id = ?
+       ORDER BY created_at ASC`
+    )
+    .all(userId);
+
+  const reactions = getDb()
+    .prepare(
+      `SELECT message_id, emoji, created_at
+       FROM message_reactions WHERE user_id = ?
+       ORDER BY created_at ASC`
+    )
+    .all(userId);
+
+  const statuses = getDb()
+    .prepare(
+      `SELECT id, type, body, media_url, created_at, expires_at
+       FROM statuses WHERE user_id = ?
+       ORDER BY created_at DESC`
+    )
+    .all(userId);
+
   return {
+    exported_at: nowIso(),
+    privacy_policy_version: PRIVACY_POLICY_VERSION,
+    user: publicUser(user, { includePrivate: true }),
+    consents,
+    conversations,
+    messages,
+    reactions,
+    statuses,
+    note:
+      'Dies ist deine Datenkopie nach Art. 15/20 DSGVO. Passwort-Hashes sind nicht enthalten.',
+  };
+}
+
+export function deleteUserAccount(userId) {
+  const user = getDb().prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) {
+    throw Object.assign(new Error('Benutzer nicht gefunden.'), { status: 404 });
+  }
+
+  const mediaUrls = getDb()
+    .prepare(
+      `SELECT media_url AS url FROM messages WHERE sender_id = ? AND media_url IS NOT NULL
+       UNION
+       SELECT media_url AS url FROM statuses WHERE user_id = ? AND media_url IS NOT NULL`
+    )
+    .all(userId, userId)
+    .map((row) => row.url)
+    .filter(Boolean);
+
+  const memberConversations = getDb()
+    .prepare('SELECT conversation_id FROM conversation_members WHERE user_id = ?')
+    .all(userId)
+    .map((row) => row.conversation_id);
+
+  const tx = getDb().transaction(() => {
+    getDb().prepare('DELETE FROM message_reactions WHERE user_id = ?').run(userId);
+    getDb().prepare('DELETE FROM status_views WHERE viewer_id = ?').run(userId);
+    getDb()
+      .prepare(
+        `DELETE FROM status_views
+         WHERE status_id IN (SELECT id FROM statuses WHERE user_id = ?)`
+      )
+      .run(userId);
+    getDb().prepare('DELETE FROM statuses WHERE user_id = ?').run(userId);
+    getDb().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+
+    // Soft-delete own messages and strip media/content
+    getDb()
+      .prepare(
+        `UPDATE messages
+         SET body = '',
+             media_url = NULL,
+             deleted_at = COALESCE(deleted_at, ?)
+         WHERE sender_id = ?`
+      )
+      .run(nowIso(), userId);
+
+    getDb().prepare('DELETE FROM conversation_members WHERE user_id = ?').run(userId);
+
+    for (const conversationId of memberConversations) {
+      const remaining = getDb()
+        .prepare(
+          'SELECT COUNT(*) AS count FROM conversation_members WHERE conversation_id = ?'
+        )
+        .get(conversationId).count;
+      const conv = getDb()
+        .prepare('SELECT type FROM conversations WHERE id = ?')
+        .get(conversationId);
+      if (!conv) continue;
+      if (remaining === 0 || (conv.type === 'direct' && remaining < 2)) {
+        getDb().prepare('DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM messages WHERE conversation_id = ?)').run(conversationId);
+        getDb().prepare('DELETE FROM messages WHERE conversation_id = ?').run(conversationId);
+        getDb().prepare('DELETE FROM conversations WHERE id = ?').run(conversationId);
+      }
+    }
+
+    getDb().prepare('UPDATE privacy_consents SET user_id = NULL WHERE user_id = ?').run(userId);
+    getDb().prepare('DELETE FROM users WHERE id = ?').run(userId);
+  });
+  tx();
+
+  return { deleted: true, media_urls: mediaUrls };
+}
+
+export function recordPrivacyConsent(userId, requestMeta = {}) {
+  const stamp = nowIso();
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET privacy_consent_at = ?, privacy_consent_version = ?
+       WHERE id = ?`
+    )
+    .run(stamp, PRIVACY_POLICY_VERSION, userId);
+
+  getDb()
+    .prepare(
+      `INSERT INTO privacy_consents (id, user_id, version, accepted_at, ip_hash, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      newId('pc_'),
+      userId,
+      PRIVACY_POLICY_VERSION,
+      stamp,
+      requestMeta.ipHash || null,
+      String(requestMeta.userAgent || '').slice(0, 300) || null
+    );
+
+  return getUserById(userId, { includePrivate: true });
+}
+
+function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
+  const showLastSeen = row.show_last_seen == null ? true : Boolean(row.show_last_seen);
+  const base = {
     id: row.id,
     username: row.username,
     display_name: row.display_name,
     avatar_color: row.avatar_color,
     status: row.status || '',
-    last_seen_at: row.last_seen_at || null,
     created_at: row.created_at,
+  };
+
+  if (forPeer) {
+    return {
+      ...base,
+      last_seen_at: showLastSeen ? row.last_seen_at || null : null,
+      show_last_seen: showLastSeen,
+    };
+  }
+
+  if (includePrivate) {
+    return {
+      ...base,
+      last_seen_at: row.last_seen_at || null,
+      show_last_seen: showLastSeen,
+      privacy_consent_at: row.privacy_consent_at || null,
+      privacy_consent_version: row.privacy_consent_version || null,
+    };
+  }
+
+  return {
+    ...base,
+    last_seen_at: showLastSeen ? row.last_seen_at || null : null,
+    show_last_seen: showLastSeen,
   };
 }

@@ -54,6 +54,7 @@ const els = {
   btnVoiceSend: document.getElementById('btn-voice-send'),
   btnNewChat: document.getElementById('btn-new-chat'),
   btnNewGroup: document.getElementById('btn-new-group'),
+  btnPrivacy: document.getElementById('btn-privacy'),
   btnEmptyNew: document.getElementById('btn-empty-new'),
   btnLogout: document.getElementById('btn-logout'),
   btnBack: document.getElementById('btn-back'),
@@ -64,6 +65,12 @@ const els = {
   groupContactList: document.getElementById('group-contact-list'),
   groupTitle: document.getElementById('group-title'),
   btnCloseGroup: document.getElementById('btn-close-group'),
+  privacyDialog: document.getElementById('privacy-dialog'),
+  privacyLastSeen: document.getElementById('privacy-last-seen'),
+  btnExportData: document.getElementById('btn-export-data'),
+  btnDeleteAccount: document.getElementById('btn-delete-account'),
+  storageBanner: document.getElementById('storage-banner'),
+  btnAcceptStorage: document.getElementById('btn-accept-storage'),
   replyBar: document.getElementById('reply-bar'),
   replyBarName: document.getElementById('reply-bar-name'),
   replyBarBody: document.getElementById('reply-bar-body'),
@@ -115,7 +122,8 @@ function formatListTime(iso) {
   return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
 }
 
-function formatLastSeen(iso) {
+function formatLastSeen(iso, { hidden = false } = {}) {
+  if (hidden) return 'zuletzt gesehen ausgeblendet';
   if (!iso) return 'zuletzt gesehen vor Kurzem';
   const date = new Date(iso);
   const now = new Date();
@@ -126,6 +134,11 @@ function formatLastSeen(iso) {
     return `zuletzt gesehen heute um ${formatTime(iso)}`;
   }
   return `zuletzt gesehen ${date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} ${formatTime(iso)}`;
+}
+
+function maybeShowStorageBanner() {
+  if (localStorage.getItem('relay_storage_notice') === '1') return;
+  els.storageBanner.classList.remove('is-hidden');
 }
 
 function formatDuration(ms = 0) {
@@ -224,10 +237,31 @@ function connectSocket() {
     state.onlineIds.delete(user_id);
     if (last_seen_at) state.lastSeen.set(user_id, last_seen_at);
     const user = state.users.find((u) => u.id === user_id);
-    if (user) user.last_seen_at = last_seen_at;
+    if (user) {
+      user.last_seen_at = last_seen_at;
+      if (last_seen_at == null) user.show_last_seen = false;
+    }
     const conversation = state.conversations.find((c) => c.peer?.id === user_id);
-    if (conversation?.peer) conversation.peer.last_seen_at = last_seen_at;
+    if (conversation?.peer) {
+      conversation.peer.last_seen_at = last_seen_at;
+      if (last_seen_at == null) conversation.peer.show_last_seen = false;
+    }
     renderConversationList();
+    renderActiveHeader();
+  });
+
+  state.socket.on('presence:privacy', ({ user_id, show_last_seen, last_seen_at }) => {
+    const user = state.users.find((u) => u.id === user_id);
+    if (user) {
+      user.show_last_seen = show_last_seen;
+      user.last_seen_at = last_seen_at;
+    }
+    const conversation = state.conversations.find((c) => c.peer?.id === user_id);
+    if (conversation?.peer) {
+      conversation.peer.show_last_seen = show_last_seen;
+      conversation.peer.last_seen_at = last_seen_at;
+    }
+    if (last_seen_at) state.lastSeen.set(user_id, last_seen_at);
     renderActiveHeader();
   });
 
@@ -506,8 +540,9 @@ function renderActiveHeader() {
       ? `online · ${conversation.peer.status}`
       : 'online';
   } else {
+    const hidden = conversation.peer?.show_last_seen === false;
     const lastSeen = conversation.peer?.last_seen_at || state.lastSeen.get(conversation.peer?.id);
-    els.peerMeta.textContent = formatLastSeen(lastSeen);
+    els.peerMeta.textContent = formatLastSeen(lastSeen, { hidden });
   }
 }
 
@@ -878,7 +913,7 @@ function openNewChatDialog() {
           <div class="avatar ${online ? 'is-online' : ''}" style="background:linear-gradient(145deg, ${user.avatar_color}, color-mix(in srgb, ${user.avatar_color} 65%, #041f1d))">${initials(user.display_name)}</div>
           <div class="contact-main">
             <div class="contact-name">${escapeHtml(user.display_name)}</div>
-            <div class="contact-status">${online ? 'online' : formatLastSeen(user.last_seen_at)}</div>
+            <div class="contact-status">${online ? 'online' : formatLastSeen(user.last_seen_at, { hidden: user.show_last_seen === false })}</div>
           </div>
         </button>`;
       })
@@ -981,6 +1016,8 @@ els.registerForm.addEventListener('submit', async (event) => {
         username: form.get('username'),
         display_name: form.get('display_name'),
         password: form.get('password'),
+        privacy_consent: form.get('privacy_consent') === 'on',
+        age_confirmed: form.get('age_confirmed') === 'on',
       },
     });
     await handleAuthSuccess(data);
@@ -1018,6 +1055,75 @@ els.btnEmptyNew.addEventListener('click', async () => {
 els.btnNewGroup.addEventListener('click', async () => {
   await refreshUsers();
   openNewGroupDialog();
+});
+
+els.btnPrivacy.addEventListener('click', () => {
+  els.privacyLastSeen.checked = state.user?.show_last_seen !== false;
+  els.privacyDialog.showModal();
+});
+
+els.privacyLastSeen.addEventListener('change', async () => {
+  try {
+    const data = await api('/api/me/privacy', {
+      method: 'PATCH',
+      body: { show_last_seen: els.privacyLastSeen.checked },
+    });
+    state.user = data.user;
+    showToast(els.privacyLastSeen.checked ? 'Zuletzt online sichtbar' : 'Zuletzt online ausgeblendet');
+  } catch (error) {
+    els.privacyLastSeen.checked = !els.privacyLastSeen.checked;
+    showToast(error.message);
+  }
+});
+
+els.btnExportData.addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/me/export', {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Export fehlgeschlagen');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relay-datenexport-${state.user.username}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Datenexport gestartet');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnDeleteAccount.addEventListener('click', async () => {
+  const ok = confirm(
+    'Konto wirklich unwiderruflich löschen? Nachrichten, Medien und Status werden entfernt.'
+  );
+  if (!ok) return;
+  const again = prompt('Zur Bestätigung „LÖSCHEN“ eingeben');
+  if (again !== 'LÖSCHEN') {
+    showToast('Löschung abgebrochen');
+    return;
+  }
+  try {
+    await api('/api/me', { method: 'DELETE' });
+    state.socket?.disconnect();
+    state.socket = null;
+    state.token = null;
+    state.user = null;
+    localStorage.removeItem(TOKEN_KEY);
+    els.privacyDialog.close();
+    showAuth();
+    showToast('Konto gelöscht');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnAcceptStorage.addEventListener('click', () => {
+  localStorage.setItem('relay_storage_notice', '1');
+  els.storageBanner.classList.add('is-hidden');
 });
 
 els.btnCloseGroup.addEventListener('click', () => els.newGroupDialog.close());
@@ -1130,3 +1236,4 @@ els.messageInput.addEventListener('input', () => {
 });
 
 bootstrapSession();
+maybeShowStorageBanner();
