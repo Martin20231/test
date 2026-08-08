@@ -166,7 +166,7 @@ function maybeShowStorageBanner() {
 
 function ensureMessageConsent() {
   if (state.user?.processing_restricted) {
-    showToast('Verarbeitung eingeschränkt (Art. 18 DSGVO)');
+    showToast('Verarbeitung ist pausiert');
     return false;
   }
   if (state.user?.has_message_consent || state.user?.message_consent_at) return true;
@@ -177,7 +177,7 @@ function ensureMessageConsent() {
 
 function ensureMediaConsent() {
   if (state.user?.processing_restricted) {
-    showToast('Verarbeitung eingeschränkt (Art. 18 DSGVO)');
+    showToast('Verarbeitung ist pausiert');
     return false;
   }
   if (state.user?.has_media_consent || state.user?.media_consent_at) return true;
@@ -187,11 +187,11 @@ function ensureMediaConsent() {
 
 function ensureImpulseConsent() {
   if (state.user?.processing_restricted) {
-    showToast('Verarbeitung eingeschränkt (Art. 18 DSGVO)');
+    showToast('Verarbeitung ist pausiert');
     return false;
   }
   if (state.user?.has_impulse_consent || state.user?.impulse_consent_at) return true;
-  showToast('Impuls-Einwilligung fehlt — unter Privatsphäre erteilen');
+  showToast('Status-Einwilligung fehlt — unter Privatsphäre erteilen');
   return false;
 }
 
@@ -203,8 +203,8 @@ function renderConsentStatus() {
   els.consentStatus.innerHTML = [
     row('Nachrichten', Boolean(u.has_message_consent || u.message_consent_at)),
     row('Medien', Boolean(u.has_media_consent || u.media_consent_at)),
-    row('Impulse', Boolean(u.has_impulse_consent || u.impulse_consent_at)),
-    row('Art. 18', Boolean(u.processing_restricted)),
+    row('Status', Boolean(u.has_impulse_consent || u.impulse_consent_at)),
+    u.processing_restricted ? row('Pausiert', true) : '',
   ].join('');
 }
 
@@ -218,20 +218,6 @@ function openPrivacyDialog() {
   els.privacyDialog.showModal();
 }
 
-async function revokeScope(scope) {
-  try {
-    const data = await api('/api/me/consent/revoke', {
-      method: 'POST',
-      body: { scope },
-    });
-    state.user = data.user;
-    renderConsentStatus();
-    showToast(`Einwilligung widerrufen: ${scope}`);
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
 async function grantScope(kind) {
   try {
     const endpoints = {
@@ -239,11 +225,27 @@ async function grantScope(kind) {
       media: ['/api/me/media-consent', { media_consent: true }],
       impulses: ['/api/me/impulse-consent', { impulse_consent: true }],
     };
+    const labels = { messages: 'Nachrichten', media: 'Medien', impulses: 'Status' };
     const [url, body] = endpoints[kind];
     const data = await api(url, { method: 'POST', body });
     state.user = data.user;
     renderConsentStatus();
-    showToast(`Einwilligung erteilt: ${kind}`);
+    showToast(`Einwilligung erteilt: ${labels[kind] || kind}`);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function revokeScope(scope) {
+  try {
+    const labels = { messages: 'Nachrichten', media: 'Medien', impulses: 'Status' };
+    const data = await api('/api/me/consent/revoke', {
+      method: 'POST',
+      body: { scope },
+    });
+    state.user = data.user;
+    renderConsentStatus();
+    showToast(`Einwilligung widerrufen: ${labels[scope] || scope}`);
   } catch (error) {
     showToast(error.message);
   }
@@ -307,12 +309,12 @@ async function api(path, { method = 'GET', body, auth = true, formData } = {}) {
 }
 
 function conversationTitle(conversation) {
-  if (conversation.type === 'group') return conversation.title || 'Kreis';
-  return conversation.peer?.display_name || 'Dialog';
+  if (conversation.type === 'group') return conversation.title || 'Gruppe';
+  return conversation.peer?.display_name || 'Chat';
 }
 
 function conversationSubtitle(conversation) {
-  if (conversation.type === 'group') return `${conversation.members?.length || 0} im Kreis`;
+  if (conversation.type === 'group') return `${conversation.members?.length || 0} Mitglieder`;
   return conversation.peer?.status || `@${conversation.peer?.username || ''}`;
 }
 
@@ -638,7 +640,7 @@ function renderStatusList() {
       </button>`);
   }
 
-  els.statusList.innerHTML = chips.join('') || '<span style="color:var(--muted);font-size:0.85rem;padding:8px 0;">Noch keine Impulse</span>';
+  els.statusList.innerHTML = chips.join('') || '<span style="color:var(--muted);font-size:0.85rem;padding:8px 0;">Noch kein Status</span>';
   els.statusList.querySelectorAll('.status-chip').forEach((btn) => {
     btn.addEventListener('click', () => openStatusViewer(btn.dataset.user));
   });
@@ -681,7 +683,7 @@ function renderConversationList() {
   if (!items.length) {
     els.conversationList.innerHTML = `
       <div style="padding:24px 14px;color:var(--muted);text-align:center;font-size:0.92rem;">
-        ${query ? 'Keine Treffer.' : 'Noch keine Chats. Starte den ersten!'}
+        ${query ? 'Keine Treffer.' : 'Noch keine Chats'}
       </div>`;
     return;
   }
@@ -698,7 +700,7 @@ function renderConversationList() {
         conversation.unread_count > 0
           ? `<span class="unread-badge">${conversation.unread_count}</span>`
           : '';
-      const tag = isGroup ? '<span class="group-tag">Kreis</span>' : '';
+      const tag = isGroup ? '<span class="group-tag">Gruppe</span>' : '';
       return `
         <button type="button" class="chat-item ${conversation.id === state.activeConversationId ? 'is-active' : ''}" data-id="${conversation.id}" role="listitem">
           <div class="avatar ${online ? 'is-online' : ''}" style="background:linear-gradient(145deg, ${color}, color-mix(in srgb, ${color} 65%, #152238))">${initials(name)}</div>
@@ -1417,8 +1419,8 @@ els.privacyRestrict?.addEventListener('change', async () => {
     renderConsentStatus();
     showToast(
       els.privacyRestrict.checked
-        ? 'Verarbeitung eingeschränkt (Art. 18)'
-        : 'Einschränkung aufgehoben'
+        ? 'Neue Nachrichten und Status pausiert'
+        : 'Verarbeitung wieder aktiv'
     );
   } catch (error) {
     els.privacyRestrict.checked = !els.privacyRestrict.checked;
@@ -1504,7 +1506,7 @@ els.newGroupForm.addEventListener('submit', async (event) => {
     els.newGroupDialog.close();
     state.conversations.unshift(data.conversation);
     await openConversation(data.conversation.id);
-    showToast('Kreis erstellt');
+    showToast('Gruppe erstellt');
   } catch (error) {
     showToast(error.message);
   }

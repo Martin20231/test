@@ -126,7 +126,7 @@ a { color: var(--accent); }
 }
 
 .brand-name {
-  margin: 8px 0 0;
+  margin: 0;
   font-family: var(--font-display);
   font-size: clamp(2.8rem, 10vw, 3.6rem);
   letter-spacing: -0.05em;
@@ -216,15 +216,29 @@ input:focus, select:focus {
 .btn-danger { background: var(--danger); color: white; }
 
 .auth-error { color: var(--danger); font-weight: 700; margin: 10px 0 0; }
-.demo-hint {
+.demo-hint,
+.auth-footer {
   margin-top: 16px;
   padding: 12px 14px;
   border-radius: 14px;
   background: rgba(21, 34, 56, 0.05);
   display: grid;
-  gap: 4px;
+  gap: 8px;
   font-size: 0.86rem;
   color: var(--ink-soft);
+}
+.auth-footer {
+  grid-template-columns: auto auto;
+  align-items: center;
+}
+.auth-footer a {
+  font-weight: 700;
+  text-decoration: none;
+}
+.auth-accounts {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .app-shell {
@@ -347,16 +361,8 @@ input:focus, select:focus {
   padding: 20px 18px 14px;
   border-bottom: 1px solid var(--line);
 }
-.app-menu-kicker {
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.68rem;
-  font-weight: 800;
-  color: var(--accent);
-}
 .app-menu-header strong {
   display: block;
-  margin-top: 4px;
   font-family: var(--font-display);
   font-size: 1.25rem;
   letter-spacing: -0.03em;
@@ -401,10 +407,6 @@ input:focus, select:focus {
 .menu-item-label {
   font-weight: 800;
   font-size: 0.95rem;
-}
-.menu-item-hint {
-  font-size: 0.78rem;
-  color: var(--muted);
 }
 .menu-item-danger .menu-item-label { color: var(--danger); }
 .menu-section-danger {
@@ -870,14 +872,7 @@ input:focus, select:focus {
   text-overflow: ellipsis;
 }
 
-.message-legal-note {
-  margin: 0 14px 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(21, 34, 56, 0.05);
-  color: var(--ink-soft);
-  font-size: 0.74rem;
-}
+.message-legal-note { display: none; }
 
 .composer {
   display: grid;
