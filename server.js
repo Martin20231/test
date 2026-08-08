@@ -32,6 +32,10 @@ import {
   createStatus,
   listActiveStatuses,
   markStatusViewed,
+  createPoll,
+  votePoll,
+  pinMessage,
+  unpinMessage,
   exportUserData,
   deleteUserAccount,
   recordPrivacyConsent,
@@ -359,6 +363,19 @@ app.get('/api/conversations/:id/messages', authMiddleware, (req, res) => {
 
 app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
   try {
+    if (req.body.type === 'poll') {
+      const message = createPoll(req.params.id, req.user.id, {
+        question: req.body.body || req.body.question,
+        options: req.body.options || [],
+        replyToId: req.body.reply_to_id || null,
+      });
+      emitToConversation(req.params.id, 'message:new', {
+        message,
+        conversation_id: req.params.id,
+      });
+      return res.status(201).json({ message });
+    }
+
     const message = createMessage(req.params.id, req.user.id, {
       body: req.body.body,
       replyToId: req.body.reply_to_id || null,
@@ -444,6 +461,42 @@ app.post('/api/messages/:id/reactions', authMiddleware, (req, res) => {
   try {
     const message = setReaction(req.params.id, req.user.id, req.body.emoji);
     emitToConversation(message.conversation_id, 'message:updated', { message });
+    res.json({ message });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/messages/:id/vote', authMiddleware, (req, res) => {
+  try {
+    const message = votePoll(req.params.id, req.user.id, req.body.option_id);
+    emitToConversation(message.conversation_id, 'message:updated', { message });
+    res.json({ message });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/conversations/:id/pins/:messageId', authMiddleware, (req, res) => {
+  try {
+    const message = pinMessage(req.params.id, req.params.messageId, req.user.id);
+    emitToConversation(req.params.id, 'message:updated', { message });
+    emitToConversation(req.params.id, 'conversation:pins', {
+      conversation_id: req.params.id,
+    });
+    res.status(201).json({ message });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.delete('/api/conversations/:id/pins/:messageId', authMiddleware, (req, res) => {
+  try {
+    const message = unpinMessage(req.params.id, req.params.messageId, req.user.id);
+    emitToConversation(req.params.id, 'message:updated', { message });
+    emitToConversation(req.params.id, 'conversation:pins', {
+      conversation_id: req.params.id,
+    });
     res.json({ message });
   } catch (error) {
     sendError(res, error);

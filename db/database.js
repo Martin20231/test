@@ -111,6 +111,28 @@ export function initDatabase() {
       PRIMARY KEY (status_id, viewer_id)
     );
 
+    CREATE TABLE IF NOT EXISTS pinned_messages (
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      message_id      TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      pinned_by       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      pinned_at       TEXT NOT NULL,
+      PRIMARY KEY (conversation_id, message_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS poll_options (
+      id          TEXT PRIMARY KEY,
+      message_id  TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      label       TEXT NOT NULL,
+      position    INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS poll_votes (
+      option_id   TEXT NOT NULL REFERENCES poll_options(id) ON DELETE CASCADE,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at  TEXT NOT NULL,
+      PRIMARY KEY (option_id, user_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_conversation
       ON messages(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user
@@ -121,6 +143,10 @@ export function initDatabase() {
       ON message_reactions(message_id);
     CREATE INDEX IF NOT EXISTS idx_statuses_expires
       ON statuses(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_pins_conversation
+      ON pinned_messages(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_poll_options_message
+      ON poll_options(message_id);
   `);
 
   migrateSchema(db);
@@ -645,6 +671,7 @@ export function getConversationForUser(conversationId, userId) {
     members,
     last_message: lastMessageRow ? formatMessagePreview(lastMessageRow) : null,
     unread_count: unread,
+    pinned_messages: listPinnedMessages(conversationId, userId),
   };
 }
 
@@ -657,10 +684,13 @@ function formatMessagePreview(row) {
     };
   }
   if (row.type === 'image') {
-    return { ...row, body: row.body ? `📷 ${row.body}` : '📷 Foto' };
+    return { ...row, body: row.body ? `Bild: ${row.body}` : 'Bild' };
   }
   if (row.type === 'audio') {
-    return { ...row, body: '🎤 Sprachnachricht' };
+    return { ...row, body: 'Sprachnotiz' };
+  }
+  if (row.type === 'poll') {
+    return { ...row, body: `Umfrage: ${row.body}` };
   }
   return row;
 }
@@ -698,10 +728,13 @@ function hydrateMessage(row, reactionsMap, usersById) {
   let replyBody = '';
   if (reply) {
     if (reply.deleted_at) replyBody = 'Nachricht gelöscht';
-    else if (reply.type === 'image') replyBody = reply.body || 'Foto';
-    else if (reply.type === 'audio') replyBody = 'Sprachnachricht';
+    else if (reply.type === 'image') replyBody = reply.body || 'Bild';
+    else if (reply.type === 'audio') replyBody = 'Sprachnotiz';
+    else if (reply.type === 'poll') replyBody = `Umfrage: ${reply.body}`;
     else replyBody = reply.body;
   }
+
+  const poll = !deleted && row.type === 'poll' ? getPollForMessage(row.id, null) : null;
 
   return {
     id: row.id,
@@ -727,6 +760,7 @@ function hydrateMessage(row, reactionsMap, usersById) {
     delivered_at: row.delivered_at,
     read_at: row.read_at,
     reactions: reactionsMap.get(row.id) || [],
+    poll,
   };
 }
 
@@ -760,8 +794,19 @@ export function listMessages(conversationId, userId, { limit = 100 } = {}) {
     .all(conversationId);
   const usersById = new Map(users.map((u) => [u.id, u]));
   const reactionsMap = getReactionsMap(messages.map((m) => m.id));
+  const pinnedIds = new Set(
+    getDb()
+      .prepare('SELECT message_id FROM pinned_messages WHERE conversation_id = ?')
+      .all(conversationId)
+      .map((row) => row.message_id)
+  );
 
-  return messages.map((row) => hydrateMessage(row, reactionsMap, usersById));
+  return messages.map((row) => {
+    const message = hydrateMessage(row, reactionsMap, usersById);
+    if (message.poll) message.poll = getPollForMessage(row.id, userId);
+    message.pinned = pinnedIds.has(row.id);
+    return message;
+  });
 }
 
 export function getMessageById(messageId) {
@@ -804,10 +849,10 @@ export function createMessage(
     );
   }
 
-  const msgType = ['text', 'image', 'audio'].includes(type) ? type : 'text';
+  const msgType = ['text', 'image', 'audio', 'poll'].includes(type) ? type : 'text';
   const clean = String(body || '').trim();
 
-  if (msgType === 'text' && !clean) {
+  if ((msgType === 'text' || msgType === 'poll') && !clean) {
     throw Object.assign(new Error('Nachricht darf nicht leer sein.'), { status: 400 });
   }
   if ((msgType === 'image' || msgType === 'audio') && !mediaUrl) {
@@ -1082,6 +1127,200 @@ export function listActiveStatuses(viewerId) {
     .all(nowIso());
 
   return rows.map((row) => hydrateStatus(row, viewerId));
+}
+
+export function createPoll(conversationId, senderId, { question, options = [], replyToId = null }) {
+  const labels = (options || [])
+    .map((label) => String(label || '').trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+  if (labels.length < 2) {
+    throw Object.assign(new Error('Eine Umfrage braucht mindestens 2 Antworten.'), { status: 400 });
+  }
+
+  const message = createMessage(conversationId, senderId, {
+    body: String(question || '').trim(),
+    type: 'poll',
+    replyToId,
+  });
+
+  const insert = getDb().prepare(
+    `INSERT INTO poll_options (id, message_id, label, position) VALUES (?, ?, ?, ?)`
+  );
+  labels.forEach((label, index) => {
+    insert.run(newId('po_'), message.id, label, index);
+  });
+
+  return getMessageByIdForUser(message.id, senderId);
+}
+
+export function getPollForMessage(messageId, viewerId = null) {
+  const options = getDb()
+    .prepare(
+      `SELECT id, label, position
+       FROM poll_options
+       WHERE message_id = ?
+       ORDER BY position ASC`
+    )
+    .all(messageId);
+
+  if (!options.length) return null;
+
+  const votes = getDb()
+    .prepare(
+      `SELECT v.option_id, v.user_id
+       FROM poll_votes v
+       JOIN poll_options o ON o.id = v.option_id
+       WHERE o.message_id = ?`
+    )
+    .all(messageId);
+
+  const counts = new Map();
+  let myVote = null;
+  for (const vote of votes) {
+    counts.set(vote.option_id, (counts.get(vote.option_id) || 0) + 1);
+    if (viewerId && vote.user_id === viewerId) myVote = vote.option_id;
+  }
+
+  const total = votes.length;
+  return {
+    options: options.map((option) => ({
+      id: option.id,
+      label: option.label,
+      votes: counts.get(option.id) || 0,
+      percent: total ? Math.round(((counts.get(option.id) || 0) / total) * 100) : 0,
+    })),
+    total_votes: total,
+    my_vote: myVote,
+  };
+}
+
+export function getMessageByIdForUser(messageId, userId) {
+  const message = getMessageById(messageId);
+  if (!message) return null;
+  if (message.poll) message.poll = getPollForMessage(messageId, userId);
+  const pinned = getDb()
+    .prepare(
+      'SELECT 1 AS ok FROM pinned_messages WHERE conversation_id = ? AND message_id = ?'
+    )
+    .get(message.conversation_id, messageId);
+  message.pinned = Boolean(pinned);
+  return message;
+}
+
+export function votePoll(messageId, userId, optionId) {
+  const message = getDb().prepare('SELECT * FROM messages WHERE id = ?').get(messageId);
+  if (!message || message.deleted_at || message.type !== 'poll') {
+    throw Object.assign(new Error('Umfrage nicht gefunden.'), { status: 404 });
+  }
+
+  const membership = getDb()
+    .prepare(
+      'SELECT 1 AS ok FROM conversation_members WHERE conversation_id = ? AND user_id = ?'
+    )
+    .get(message.conversation_id, userId);
+  if (!membership) {
+    throw Object.assign(new Error('Chat nicht gefunden.'), { status: 404 });
+  }
+
+  const option = getDb()
+    .prepare('SELECT * FROM poll_options WHERE id = ? AND message_id = ?')
+    .get(optionId, messageId);
+  if (!option) {
+    throw Object.assign(new Error('Antwortoption nicht gefunden.'), { status: 400 });
+  }
+
+  const tx = getDb().transaction(() => {
+    const existingOptions = getDb()
+      .prepare('SELECT id FROM poll_options WHERE message_id = ?')
+      .all(messageId)
+      .map((row) => row.id);
+    if (existingOptions.length) {
+      const placeholders = existingOptions.map(() => '?').join(',');
+      getDb()
+        .prepare(
+          `DELETE FROM poll_votes WHERE user_id = ? AND option_id IN (${placeholders})`
+        )
+        .run(userId, ...existingOptions);
+    }
+    getDb()
+      .prepare('INSERT INTO poll_votes (option_id, user_id, created_at) VALUES (?, ?, ?)')
+      .run(optionId, userId, nowIso());
+  });
+  tx();
+
+  return getMessageByIdForUser(messageId, userId);
+}
+
+export function pinMessage(conversationId, messageId, userId) {
+  const membership = getDb()
+    .prepare(
+      'SELECT 1 AS ok FROM conversation_members WHERE conversation_id = ? AND user_id = ?'
+    )
+    .get(conversationId, userId);
+  if (!membership) {
+    throw Object.assign(new Error('Chat nicht gefunden.'), { status: 404 });
+  }
+
+  const message = getDb()
+    .prepare('SELECT * FROM messages WHERE id = ? AND conversation_id = ?')
+    .get(messageId, conversationId);
+  if (!message || message.deleted_at) {
+    throw Object.assign(new Error('Nachricht nicht gefunden.'), { status: 404 });
+  }
+
+  const count = getDb()
+    .prepare('SELECT COUNT(*) AS count FROM pinned_messages WHERE conversation_id = ?')
+    .get(conversationId).count;
+  if (count >= 3) {
+    throw Object.assign(new Error('Maximal 3 angeheftete Nachrichten pro Chat.'), { status: 400 });
+  }
+
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO pinned_messages (conversation_id, message_id, pinned_by, pinned_at)
+       VALUES (?, ?, ?, ?)`
+    )
+    .run(conversationId, messageId, userId, nowIso());
+
+  return getMessageByIdForUser(messageId, userId);
+}
+
+export function unpinMessage(conversationId, messageId, userId) {
+  const membership = getDb()
+    .prepare(
+      'SELECT 1 AS ok FROM conversation_members WHERE conversation_id = ? AND user_id = ?'
+    )
+    .get(conversationId, userId);
+  if (!membership) {
+    throw Object.assign(new Error('Chat nicht gefunden.'), { status: 404 });
+  }
+
+  getDb()
+    .prepare('DELETE FROM pinned_messages WHERE conversation_id = ? AND message_id = ?')
+    .run(conversationId, messageId);
+
+  return getMessageByIdForUser(messageId, userId);
+}
+
+export function listPinnedMessages(conversationId, userId) {
+  const rows = getDb()
+    .prepare(
+      `SELECT m.id, m.conversation_id, m.sender_id, m.body, m.type, m.media_url, m.media_duration_ms,
+              m.reply_to_id, m.created_at, m.edited_at, m.deleted_at, m.delivered_at, m.read_at,
+              p.pinned_at
+       FROM pinned_messages p
+       JOIN messages m ON m.id = p.message_id
+       WHERE p.conversation_id = ?
+       ORDER BY p.pinned_at DESC`
+    )
+    .all(conversationId);
+
+  return rows.map((row) => {
+    const message = getMessageByIdForUser(row.id, userId);
+    return message ? { ...message, pinned_at: row.pinned_at, pinned: true } : null;
+  }).filter(Boolean);
 }
 
 export function markStatusViewed(statusId, viewerId) {

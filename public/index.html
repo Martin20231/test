@@ -3,261 +3,181 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#064E4A" />
-    <title>Relay — Messenger</title>
+    <meta name="theme-color" content="#152238" />
+    <title>Relay</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div class="ambient" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
 
     <section id="auth-screen" class="auth-screen">
       <div class="auth-panel">
-        <header class="auth-brand">
-          <div class="brand-mark" aria-hidden="true">
-            <span class="brand-wave"></span>
-          </div>
-          <h1 class="brand-name">Relay</h1>
-          <p class="brand-tagline">Dein Messenger. Sofort. Ohne Schnickschnack.</p>
-        </header>
+        <p class="eyebrow">Messenger neu gedacht</p>
+        <h1 class="brand-name">Relay</h1>
+        <p class="brand-tagline">Schreiben. Abstimmen. Festhalten. Ohne WhatsApp-Kopie.</p>
 
         <div class="auth-tabs" role="tablist">
-          <button type="button" class="auth-tab is-active" data-tab="login" role="tab">Anmelden</button>
-          <button type="button" class="auth-tab" data-tab="register" role="tab">Registrieren</button>
+          <button type="button" class="auth-tab is-active" data-tab="login">Anmelden</button>
+          <button type="button" class="auth-tab" data-tab="register">Registrieren</button>
         </div>
 
         <form id="login-form" class="auth-form" autocomplete="on">
-          <label>
-            <span>Benutzername</span>
-            <input name="username" required minlength="3" maxlength="24" placeholder="anna" />
-          </label>
-          <label>
-            <span>Passwort</span>
-            <input name="password" type="password" required minlength="4" placeholder="demo" />
-          </label>
-          <button type="submit" class="btn btn-primary">Rein gehen</button>
+          <label><span>Benutzername</span><input name="username" required minlength="3" maxlength="24" placeholder="anna" /></label>
+          <label><span>Passwort</span><input name="password" type="password" required minlength="4" placeholder="demo" /></label>
+          <button type="submit" class="btn btn-primary">Loslegen</button>
         </form>
 
         <form id="register-form" class="auth-form is-hidden" autocomplete="on">
-          <label>
-            <span>Benutzername</span>
-            <input name="username" required minlength="3" maxlength="24" placeholder="marie" />
-          </label>
-          <label>
-            <span>Anzeigename</span>
-            <input name="display_name" required minlength="2" maxlength="40" placeholder="Marie Schmidt" />
-          </label>
-          <label>
-            <span>Passwort</span>
-            <input name="password" type="password" required minlength="8" placeholder="mindestens 8 Zeichen" />
-          </label>
-          <label class="check-row">
-            <input name="age_confirmed" type="checkbox" required />
-            <span>Ich bin mindestens 16 Jahre alt.</span>
-          </label>
-          <label class="check-row">
-            <input name="privacy_consent" type="checkbox" required />
-            <span>Ich stimme der <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> zu (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO).</span>
-          </label>
-          <label class="check-row">
-            <input name="message_consent" type="checkbox" required />
-            <span>Ich willige in die Verarbeitung meiner <strong>Chat-Nachrichten</strong> ein (Übermittlung &amp; Speicherung auf dem Server nach <strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO</strong>). Hinweis: keine Ende-zu-Ende-Verschlüsselung.</span>
-          </label>
+          <label><span>Benutzername</span><input name="username" required minlength="3" maxlength="24" placeholder="marie" /></label>
+          <label><span>Anzeigename</span><input name="display_name" required minlength="2" maxlength="40" placeholder="Marie Schmidt" /></label>
+          <label><span>Passwort</span><input name="password" type="password" required minlength="8" placeholder="mindestens 8 Zeichen" /></label>
+          <label class="check-row"><input name="age_confirmed" type="checkbox" required /><span>Ich bin mindestens 16 Jahre alt.</span></label>
+          <label class="check-row"><input name="privacy_consent" type="checkbox" required /><span>Ich stimme der <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> zu (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO).</span></label>
+          <label class="check-row"><input name="message_consent" type="checkbox" required /><span>Ich willige in die Verarbeitung meiner <strong>Chat-Nachrichten</strong> ein (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO). Keine E2E-Verschlüsselung.</span></label>
           <button type="submit" class="btn btn-primary">Konto erstellen</button>
         </form>
 
         <p id="auth-error" class="auth-error" hidden></p>
-
         <aside class="demo-hint">
-          <strong>Demo-Accounts</strong>
-          <span>anna / ben / clara / david — Passwort: <code>demo</code></span>
-          <span>Tipp: Zwei Browserfenster öffnen und live chatten.</span>
+          <strong>Demo</strong>
+          <span>anna / ben / clara / david — Passwort <code>demo</code></span>
           <a href="/datenschutz.html">Datenschutz</a>
         </aside>
       </div>
     </section>
 
-    <main id="app-screen" class="app-screen is-hidden">
-      <aside class="sidebar">
-        <header class="sidebar-header">
-          <div class="me-block">
-            <div id="me-avatar" class="avatar" aria-hidden="true"></div>
-            <div class="me-text">
-              <div class="brand-inline">Relay</div>
-              <div id="me-name" class="me-name"></div>
+    <main id="app-screen" class="app-shell is-hidden">
+      <header class="topbar">
+        <div class="topbar-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <div class="brand-inline">Relay</div>
+            <div id="me-name" class="me-name"></div>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" id="btn-privacy" class="text-btn">Privatsphäre</button>
+          <button type="button" id="btn-new-group" class="text-btn">Kreis</button>
+          <button type="button" id="btn-new-chat" class="btn btn-primary btn-small">Neuer Dialog</button>
+          <button type="button" id="btn-logout" class="icon-btn" title="Abmelden" aria-label="Abmelden">⎋</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="rail">
+          <section class="impulse-panel">
+            <div class="panel-head">
+              <h2>Impulse</h2>
+              <button type="button" id="btn-add-status" class="text-btn">+ Posten</button>
+            </div>
+            <div id="status-list" class="impulse-list"></div>
+          </section>
+
+          <div class="search-wrap">
+            <input id="chat-search" type="search" placeholder="Dialoge filtern" />
+          </div>
+          <div id="conversation-list" class="conversation-list" role="list"></div>
+        </aside>
+
+        <section class="stage" id="chat-pane">
+          <div id="empty-state" class="empty-state">
+            <p class="eyebrow">Dein Raum</p>
+            <h2>Wähle einen Dialog<br />oder starte einen Kreis.</h2>
+            <p>Umfragen, Anheften, Impulse — kein klassischer Messenger-Klon.</p>
+            <button type="button" id="btn-empty-new" class="btn btn-primary">Dialog starten</button>
+          </div>
+
+          <div id="active-chat" class="active-chat is-hidden">
+            <header class="chat-header">
+              <button type="button" id="btn-back" class="icon-btn back-btn" aria-label="Zurück">←</button>
+              <div id="peer-avatar" class="avatar" aria-hidden="true"></div>
+              <div class="chat-header-text">
+                <div id="peer-name" class="peer-name"></div>
+                <div id="peer-meta" class="peer-meta"></div>
+              </div>
+            </header>
+
+            <div id="pin-rail" class="pin-rail is-hidden"></div>
+
+            <div id="message-list" class="message-list" aria-live="polite"></div>
+            <div id="typing-indicator" class="typing-indicator is-hidden"><span></span><span></span><span></span></div>
+
+            <div id="reply-bar" class="reply-bar is-hidden">
+              <div class="reply-bar-text">
+                <strong id="reply-bar-name"></strong>
+                <span id="reply-bar-body"></span>
+              </div>
+              <button type="button" id="btn-cancel-reply" class="icon-btn" aria-label="Antwort abbrechen">×</button>
+            </div>
+
+            <div id="message-legal-note" class="message-legal-note">
+              Nachrichten: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO · serverseitig · Frist unter Privatsphäre
+            </div>
+
+            <form id="composer" class="composer">
+              <button type="button" id="btn-attach" class="icon-btn" title="Bild" aria-label="Bild senden">▣</button>
+              <button type="button" id="btn-poll" class="icon-btn" title="Umfrage" aria-label="Umfrage">☰</button>
+              <input id="image-input" type="file" accept="image/*" hidden />
+              <input id="message-input" type="text" maxlength="2000" placeholder="Nachricht an den Kreis…" autocomplete="off" />
+              <button type="button" id="btn-voice" class="icon-btn" title="Sprachnotiz" aria-label="Sprachnotiz">◉</button>
+              <button type="submit" class="send-btn" aria-label="Senden">→</button>
+            </form>
+            <div id="voice-bar" class="voice-bar is-hidden">
+              <span class="voice-dot"></span>
+              <span id="voice-timer">0:00</span>
+              <button type="button" id="btn-voice-cancel" class="btn btn-secondary btn-small">Abbruch</button>
+              <button type="button" id="btn-voice-send" class="btn btn-primary btn-small">Senden</button>
             </div>
           </div>
-          <div class="sidebar-actions">
-            <button type="button" id="btn-privacy" class="icon-btn" title="Privatsphäre" aria-label="Privatsphäre">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-            </button>
-            <button type="button" id="btn-new-group" class="icon-btn" title="Neue Gruppe" aria-label="Neue Gruppe">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-            </button>
-            <button type="button" id="btn-new-chat" class="icon-btn" title="Neuer Chat" aria-label="Neuer Chat">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-            <button type="button" id="btn-logout" class="icon-btn" title="Abmelden" aria-label="Abmelden">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
-          </div>
-        </header>
-
-        <div class="search-wrap">
-          <input id="chat-search" type="search" placeholder="Chats durchsuchen" />
-        </div>
-
-        <section class="status-rail" aria-label="Status">
-          <button type="button" id="btn-add-status" class="status-chip status-chip-add">
-            <span class="status-avatar add">+</span>
-            <span class="status-label">Mein Status</span>
-          </button>
-          <div id="status-list" class="status-list"></div>
         </section>
-
-        <div id="conversation-list" class="conversation-list" role="list"></div>
-      </aside>
-
-      <section class="chat-pane" id="chat-pane">
-        <div id="empty-state" class="empty-state">
-          <div class="empty-orb" aria-hidden="true"></div>
-          <h2>Wähle einen Chat</h2>
-          <p>Oder starte eine neue Unterhaltung / Gruppe.</p>
-          <button type="button" id="btn-empty-new" class="btn btn-secondary">Neuen Chat starten</button>
-        </div>
-
-        <div id="active-chat" class="active-chat is-hidden">
-          <header class="chat-header">
-            <button type="button" id="btn-back" class="icon-btn back-btn" aria-label="Zurück">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-            <div id="peer-avatar" class="avatar" aria-hidden="true"></div>
-            <div class="chat-header-text">
-              <div id="peer-name" class="peer-name"></div>
-              <div id="peer-meta" class="peer-meta"></div>
-            </div>
-          </header>
-
-          <div id="message-list" class="message-list" aria-live="polite"></div>
-
-          <div id="typing-indicator" class="typing-indicator is-hidden">
-            <span></span><span></span><span></span>
-          </div>
-
-          <div id="reply-bar" class="reply-bar is-hidden">
-            <div class="reply-bar-text">
-              <strong id="reply-bar-name"></strong>
-              <span id="reply-bar-body"></span>
-            </div>
-            <button type="button" id="btn-cancel-reply" class="icon-btn" aria-label="Antwort abbrechen">×</button>
-          </div>
-
-          <div id="message-legal-note" class="message-legal-note">
-            Nachrichten: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO · serverseitig gespeichert · Frist in Privatsphäre einstellbar
-          </div>
-
-          <form id="composer" class="composer">
-            <button type="button" id="btn-attach" class="icon-btn composer-btn" title="Foto" aria-label="Foto senden">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <circle cx="8.5" cy="10.5" r="1.5" />
-                <path d="M21 15l-5-5L5 19" />
-              </svg>
-            </button>
-            <input id="image-input" type="file" accept="image/*" hidden />
-            <input
-              id="message-input"
-              type="text"
-              maxlength="2000"
-              placeholder="Nachricht schreiben…"
-              autocomplete="off"
-            />
-            <button type="button" id="btn-voice" class="icon-btn composer-btn" title="Sprachnachricht" aria-label="Sprachnachricht">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" />
-                <path d="M19 11a7 7 0 0 1-14 0" />
-                <path d="M12 18v3" />
-              </svg>
-            </button>
-            <button type="submit" class="send-btn" aria-label="Senden">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-              </svg>
-            </button>
-          </form>
-          <div id="voice-bar" class="voice-bar is-hidden">
-            <span class="voice-dot"></span>
-            <span id="voice-timer">0:00</span>
-            <button type="button" id="btn-voice-cancel" class="btn btn-secondary">Abbruch</button>
-            <button type="button" id="btn-voice-send" class="btn btn-primary">Senden</button>
-          </div>
-        </div>
-      </section>
+      </div>
     </main>
 
     <dialog id="new-chat-dialog" class="sheet">
       <form method="dialog" class="sheet-inner">
-        <header class="sheet-header">
-          <h2>Neuer Chat</h2>
-          <button type="submit" value="cancel" class="icon-btn" aria-label="Schließen">×</button>
-        </header>
+        <header class="sheet-header"><h2>Neuer Dialog</h2><button type="submit" value="cancel" class="icon-btn">×</button></header>
         <div id="contact-list" class="contact-list"></div>
       </form>
     </dialog>
 
     <dialog id="new-group-dialog" class="sheet">
       <form id="new-group-form" class="sheet-inner">
-        <header class="sheet-header">
-          <h2>Neue Gruppe</h2>
-          <button type="button" id="btn-close-group" class="icon-btn" aria-label="Schließen">×</button>
-        </header>
+        <header class="sheet-header"><h2>Neuer Kreis</h2><button type="button" id="btn-close-group" class="icon-btn">×</button></header>
         <div class="group-form-fields">
-          <label>
-            <span>Gruppenname</span>
-            <input id="group-title" required minlength="2" maxlength="40" placeholder="Wochenende" />
-          </label>
-          <p class="group-pick-label">Mitglieder auswählen</p>
+          <label><span>Name</span><input id="group-title" required minlength="2" maxlength="40" placeholder="Wochenende" /></label>
+          <p class="group-pick-label">Leute auswählen</p>
           <div id="group-contact-list" class="contact-list"></div>
-          <button type="submit" class="btn btn-primary">Gruppe erstellen</button>
+          <button type="submit" class="btn btn-primary">Kreis öffnen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="poll-dialog" class="sheet">
+      <form id="poll-form" class="sheet-inner">
+        <header class="sheet-header"><h2>Umfrage</h2><button type="button" id="btn-close-poll" class="icon-btn">×</button></header>
+        <div class="group-form-fields">
+          <label><span>Frage</span><input id="poll-question" required maxlength="200" placeholder="Wohin am Samstag?" /></label>
+          <label><span>Option 1</span><input class="poll-option" required maxlength="80" placeholder="See" /></label>
+          <label><span>Option 2</span><input class="poll-option" required maxlength="80" placeholder="Stadt" /></label>
+          <label><span>Option 3 (optional)</span><input class="poll-option" maxlength="80" placeholder="" /></label>
+          <label><span>Option 4 (optional)</span><input class="poll-option" maxlength="80" placeholder="" /></label>
+          <button type="submit" class="btn btn-primary">Umfrage senden</button>
         </div>
       </form>
     </dialog>
 
     <dialog id="status-dialog" class="sheet">
       <form id="status-form" class="sheet-inner">
-        <header class="sheet-header">
-          <h2>Status posten</h2>
-          <button type="button" id="btn-close-status" class="icon-btn" aria-label="Schließen">×</button>
-        </header>
+        <header class="sheet-header"><h2>Impuls posten</h2><button type="button" id="btn-close-status" class="icon-btn">×</button></header>
         <div class="group-form-fields">
-          <label>
-            <span>Text</span>
-            <input id="status-text" maxlength="300" placeholder="Was gibt's Neues?" />
-          </label>
-          <label class="file-label">
-            <span>Optional: Bild</span>
-            <input id="status-image" type="file" accept="image/*" />
-          </label>
+          <label><span>Text</span><input id="status-text" maxlength="300" placeholder="Kurzer Impuls…" /></label>
+          <label class="file-label"><span>Optional: Bild</span><input id="status-image" type="file" accept="image/*" /></label>
           <button type="submit" class="btn btn-primary">Veröffentlichen</button>
         </div>
       </form>
@@ -265,7 +185,7 @@
 
     <dialog id="status-viewer" class="status-viewer">
       <div class="status-viewer-inner">
-        <button type="button" id="btn-close-viewer" class="icon-btn status-close" aria-label="Schließen">×</button>
+        <button type="button" id="btn-close-viewer" class="icon-btn status-close">×</button>
         <div id="status-viewer-media" class="status-viewer-media"></div>
         <div class="status-viewer-meta">
           <strong id="status-viewer-name"></strong>
@@ -277,66 +197,43 @@
 
     <dialog id="privacy-dialog" class="sheet">
       <form method="dialog" class="sheet-inner">
-        <header class="sheet-header">
-          <h2>Privatsphäre</h2>
-          <button type="submit" value="cancel" class="icon-btn" aria-label="Schließen">×</button>
-        </header>
+        <header class="sheet-header"><h2>Privatsphäre</h2><button type="submit" value="cancel" class="icon-btn">×</button></header>
         <div class="group-form-fields privacy-fields">
-          <label class="check-row">
-            <input id="privacy-last-seen" type="checkbox" />
-            <span>„Zuletzt online“ für andere anzeigen</span>
-          </label>
+          <label class="check-row"><input id="privacy-last-seen" type="checkbox" /><span>„Zuletzt online“ anzeigen</span></label>
           <label>
-            <span>Nachrichten-Aufbewahrung (Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;e DSGVO)</span>
+            <span>Nachrichten-Aufbewahrung</span>
             <select id="privacy-retention">
               <option value="30">30 Tage</option>
               <option value="90">90 Tage</option>
               <option value="180">180 Tage</option>
-              <option value="365">365 Tage (Standard)</option>
+              <option value="365">365 Tage</option>
             </select>
           </label>
-          <p class="privacy-help">
-            Nachrichten werden auf Grundlage von <strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO</strong>
-            verarbeitet und nach der gewählten Frist gelöscht.
-            Details: <a href="/datenschutz.html#nachrichten" target="_blank" rel="noopener">Datenschutzerklärung</a>
-          </p>
-          <button type="button" id="btn-export-data" class="btn btn-secondary">Meine Daten exportieren</button>
-          <button type="button" id="btn-delete-account" class="btn btn-danger">Konto unwiderruflich löschen</button>
+          <p class="privacy-help">Rechtsgrundlage Nachrichten: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO. <a href="/datenschutz.html" target="_blank" rel="noopener">Mehr</a></p>
+          <button type="button" id="btn-export-data" class="btn btn-secondary">Daten exportieren</button>
+          <button type="button" id="btn-delete-account" class="btn btn-danger">Konto löschen</button>
         </div>
       </form>
     </dialog>
 
     <dialog id="message-consent-dialog" class="sheet">
       <form id="message-consent-form" class="sheet-inner">
-        <header class="sheet-header">
-          <h2>Einwilligung Nachrichten</h2>
-        </header>
+        <header class="sheet-header"><h2>Einwilligung Nachrichten</h2></header>
         <div class="group-form-fields">
-          <p class="privacy-help">
-            Zum Chatten brauchen wir deine Einwilligung zur Verarbeitung von Nachrichteninhalten
-            (<strong>(Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO)</strong> sowie die vertragliche Notwendigkeit
-            der Übermittlung <strong>(Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO)</strong>.
-            Es gibt keine Ende-zu-Ende-Verschlüsselung. Details in der
-            <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a>.
-          </p>
-          <label class="check-row">
-            <input id="message-consent-check" type="checkbox" required />
-            <span>Ich willige in die Verarbeitung meiner Chat-Nachrichten ein.</span>
-          </label>
-          <button type="submit" class="btn btn-primary">Einwilligen &amp; weiterchatten</button>
+          <p class="privacy-help">Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO. Keine E2E-Verschlüsselung. <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a></p>
+          <label class="check-row"><input id="message-consent-check" type="checkbox" required /><span>Ich willige in die Verarbeitung meiner Chat-Nachrichten ein.</span></label>
+          <button type="submit" class="btn btn-primary">Einwilligen</button>
         </div>
       </form>
     </dialog>
 
-    <div id="storage-banner" class="storage-banner is-hidden" role="dialog" aria-live="polite">
-      <p>
-        Relay speichert nur ein technisch notwendiges Session-Token im Browser (kein Tracking).
-        Mehr Infos in der <a href="/datenschutz.html">Datenschutzerklärung</a>.
-      </p>
-      <button type="button" id="btn-accept-storage" class="btn btn-primary">Verstanden</button>
+    <div id="storage-banner" class="storage-banner is-hidden">
+      <p>Nur technisch nötiges Session-Token im Browser. <a href="/datenschutz.html">Datenschutz</a></p>
+      <button type="button" id="btn-accept-storage" class="btn btn-primary btn-small">Verstanden</button>
     </div>
-
     <div id="toast" class="toast is-hidden" role="status"></div>
+
+    <div id="me-avatar" class="is-hidden" aria-hidden="true"></div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="./app.js"></script>

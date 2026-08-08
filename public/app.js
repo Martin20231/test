@@ -46,12 +46,18 @@ const els = {
   composer: document.getElementById('composer'),
   messageInput: document.getElementById('message-input'),
   btnAttach: document.getElementById('btn-attach'),
+  btnPoll: document.getElementById('btn-poll'),
   imageInput: document.getElementById('image-input'),
   btnVoice: document.getElementById('btn-voice'),
   voiceBar: document.getElementById('voice-bar'),
   voiceTimer: document.getElementById('voice-timer'),
   btnVoiceCancel: document.getElementById('btn-voice-cancel'),
   btnVoiceSend: document.getElementById('btn-voice-send'),
+  pinRail: document.getElementById('pin-rail'),
+  pollDialog: document.getElementById('poll-dialog'),
+  pollForm: document.getElementById('poll-form'),
+  pollQuestion: document.getElementById('poll-question'),
+  btnClosePoll: document.getElementById('btn-close-poll'),
   btnNewChat: document.getElementById('btn-new-chat'),
   btnNewGroup: document.getElementById('btn-new-group'),
   btnPrivacy: document.getElementById('btn-privacy'),
@@ -210,12 +216,12 @@ async function api(path, { method = 'GET', body, auth = true, formData } = {}) {
 }
 
 function conversationTitle(conversation) {
-  if (conversation.type === 'group') return conversation.title || 'Gruppe';
-  return conversation.peer?.display_name || 'Chat';
+  if (conversation.type === 'group') return conversation.title || 'Kreis';
+  return conversation.peer?.display_name || 'Dialog';
 }
 
 function conversationSubtitle(conversation) {
-  if (conversation.type === 'group') return `${conversation.members?.length || 0} Mitglieder`;
+  if (conversation.type === 'group') return `${conversation.members?.length || 0} im Kreis`;
   return conversation.peer?.status || `@${conversation.peer?.username || ''}`;
 }
 
@@ -298,6 +304,14 @@ function connectSocket() {
     await refreshStatuses();
   });
 
+  state.socket.on('conversation:pins', async ({ conversation_id }) => {
+    if (conversation_id !== state.activeConversationId) return;
+    const data = await api(`/api/conversations/${conversation_id}/messages`);
+    const conversation = state.conversations.find((c) => c.id === conversation_id);
+    if (conversation) conversation.pinned_messages = data.conversation.pinned_messages || [];
+    renderPins();
+  });
+
   state.socket.on('message:new', async ({ message, conversation_id }) => {
     let existing = state.conversations.find((c) => c.id === conversation_id);
     if (!existing) {
@@ -357,8 +371,9 @@ function connectSocket() {
 
 function previewFromMessage(message) {
   if (message.deleted_at) return { ...message, body: 'Nachricht gelöscht' };
-  if (message.type === 'image') return { ...message, body: message.body ? `📷 ${message.body}` : '📷 Foto' };
-  if (message.type === 'audio') return { ...message, body: '🎤 Sprachnachricht' };
+  if (message.type === 'image') return { ...message, body: message.body ? `Bild: ${message.body}` : 'Bild' };
+  if (message.type === 'audio') return { ...message, body: 'Sprachnotiz' };
+  if (message.type === 'poll') return { ...message, body: `Umfrage: ${message.body}` };
   return message;
 }
 
@@ -424,12 +439,12 @@ function renderStatusList() {
     const unseen = list.some((s) => !s.viewed && s.user_id !== state.user.id);
     chips.push(`
       <button type="button" class="status-chip" data-user="${userId}">
-        <span class="status-avatar ${unseen ? 'has-new' : ''}" style="background:linear-gradient(145deg, ${latest.user.avatar_color}, color-mix(in srgb, ${latest.user.avatar_color} 65%, #041f1d))">${initials(latest.user.display_name)}</span>
+        <span class="status-avatar ${unseen ? 'has-new' : ''}" style="background:linear-gradient(145deg, ${latest.user.avatar_color}, color-mix(in srgb, ${latest.user.avatar_color} 65%, #152238))">${initials(latest.user.display_name)}</span>
         <span class="status-label">${escapeHtml(userId === state.user.id ? 'Du' : latest.user.display_name.split(' ')[0])}</span>
       </button>`);
   }
 
-  els.statusList.innerHTML = chips.join('');
+  els.statusList.innerHTML = chips.join('') || '<span style="color:var(--muted);font-size:0.85rem;padding:8px 0;">Noch keine Impulse</span>';
   els.statusList.querySelectorAll('.status-chip').forEach((btn) => {
     btn.addEventListener('click', () => openStatusViewer(btn.dataset.user));
   });
@@ -489,10 +504,10 @@ function renderConversationList() {
         conversation.unread_count > 0
           ? `<span class="unread-badge">${conversation.unread_count}</span>`
           : '';
-      const tag = isGroup ? '<span class="group-tag">Gruppe</span>' : '';
+      const tag = isGroup ? '<span class="group-tag">Kreis</span>' : '';
       return `
         <button type="button" class="chat-item ${conversation.id === state.activeConversationId ? 'is-active' : ''}" data-id="${conversation.id}" role="listitem">
-          <div class="avatar ${online ? 'is-online' : ''}" style="background:linear-gradient(145deg, ${color}, color-mix(in srgb, ${color} 65%, #041f1d))">${initials(name)}</div>
+          <div class="avatar ${online ? 'is-online' : ''}" style="background:linear-gradient(145deg, ${color}, color-mix(in srgb, ${color} 65%, #152238))">${initials(name)}</div>
           <div class="chat-item-main">
             <div class="chat-item-name">${escapeHtml(name)}${tag}</div>
             <div class="chat-item-preview">${escapeHtml(preview)}</div>
@@ -529,10 +544,37 @@ async function openConversation(conversationId) {
   els.emptyState.classList.add('is-hidden');
   els.activeChat.classList.remove('is-hidden');
   renderActiveHeader();
+  renderPins();
   renderMessages();
   renderConversationList();
   await markRead(conversationId);
   els.messageInput.focus();
+}
+
+function renderPins() {
+  const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
+  const pins = conversation?.pinned_messages || [];
+  if (!pins.length) {
+    els.pinRail.classList.add('is-hidden');
+    els.pinRail.innerHTML = '';
+    return;
+  }
+  els.pinRail.classList.remove('is-hidden');
+  els.pinRail.innerHTML = pins
+    .map(
+      (pin) => `
+      <button type="button" class="pin-chip" data-pin="${pin.id}">
+        <strong>Angeheftet</strong>
+        <span>${escapeHtml(pin.type === 'poll' ? `Umfrage: ${pin.body}` : pin.body || pin.type)}</span>
+      </button>`
+    )
+    .join('');
+  els.pinRail.querySelectorAll('.pin-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = els.messageList.querySelector(`[data-id="${btn.dataset.pin}"]`);
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
 }
 
 function renderActiveHeader() {
@@ -564,9 +606,23 @@ function renderActiveHeader() {
 
 function ticksFor(message) {
   if (message.sender_id !== state.user.id || message.deleted_at) return '';
-  if (message.read_at) return '<span class="ticks is-read">✓✓</span>';
-  if (message.delivered_at) return '<span class="ticks">✓✓</span>';
-  return '<span class="ticks">✓</span>';
+  if (message.read_at) return '<span class="delivery is-read">gelesen</span>';
+  if (message.delivered_at) return '<span class="delivery">angekommen</span>';
+  return '<span class="delivery">unterwegs</span>';
+}
+
+function pollHtml(message) {
+  if (message.type !== 'poll' || !message.poll || message.deleted_at) return '';
+  const options = message.poll.options
+    .map(
+      (option) => `
+      <button type="button" class="poll-option-btn ${message.poll.my_vote === option.id ? 'is-mine' : ''}" data-vote="${message.id}" data-option="${option.id}">
+        <span class="poll-option-fill" style="width:${option.percent}%"></span>
+        <span class="poll-option-label"><span>${escapeHtml(option.label)}</span><span>${option.votes}</span></span>
+      </button>`
+    )
+    .join('');
+  return `<div class="poll-card"><strong>${escapeHtml(message.body)}</strong>${options}<div style="font-size:0.75rem;color:var(--muted)">${message.poll.total_votes} Stimmen</div></div>`;
 }
 
 function reactionSummary(message) {
@@ -642,6 +698,7 @@ function renderMessages() {
       : `<div class="msg-actions">
           <button type="button" class="msg-action" data-reply="${message.id}">Antworten</button>
           <button type="button" class="msg-action" data-react-open="${message.id}">Reagieren</button>
+          <button type="button" class="msg-action" data-pin="${message.id}">${message.pinned ? 'Lösen' : 'Anheften'}</button>
           ${mine && message.type === 'text' ? `<button type="button" class="msg-action" data-edit="${message.id}">Bearbeiten</button>` : ''}
           ${mine ? `<button type="button" class="msg-action" data-delete="${message.id}">Löschen</button>` : ''}
         </div>`;
@@ -658,7 +715,8 @@ function renderMessages() {
         ${senderHtml}
         ${replyHtml}
         ${mediaHtml(message)}
-        ${body ? `<div class="bubble-body">${body}</div>` : ''}
+        ${pollHtml(message)}
+        ${body && message.type !== 'poll' ? `<div class="bubble-body">${body}</div>` : ''}
         <div class="bubble-meta">
           <span>${formatTime(message.created_at)}${edited}</span>
           ${ticksFor(message)}
@@ -683,6 +741,42 @@ function bindMessageActions() {
       overlay.innerHTML = `<img src="${img.dataset.lightbox}" alt="" />`;
       overlay.addEventListener('click', () => overlay.remove());
       document.body.appendChild(overlay);
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-vote]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const data = await api(`/api/messages/${btn.dataset.vote}/vote`, {
+          method: 'POST',
+          body: { option_id: btn.dataset.option },
+        });
+        upsertLocalMessage(data.message);
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
+
+  els.messageList.querySelectorAll('[data-pin]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const message = state.messages.find((m) => m.id === btn.dataset.pin);
+      if (!message) return;
+      try {
+        const path = `/api/conversations/${state.activeConversationId}/pins/${message.id}`;
+        const data = message.pinned
+          ? await api(path, { method: 'DELETE' })
+          : await api(path, { method: 'POST', body: {} });
+        upsertLocalMessage(data.message);
+        const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
+        if (conversation) {
+          const fresh = await api(`/api/conversations/${state.activeConversationId}/messages`);
+          conversation.pinned_messages = fresh.conversation.pinned_messages || [];
+          renderPins();
+        }
+      } catch (error) {
+        showToast(error.message);
+      }
     });
   });
 
@@ -1203,7 +1297,43 @@ els.newGroupForm.addEventListener('submit', async (event) => {
     els.newGroupDialog.close();
     state.conversations.unshift(data.conversation);
     await openConversation(data.conversation.id);
-    showToast('Gruppe erstellt');
+    showToast('Kreis erstellt');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnPoll.addEventListener('click', () => {
+  if (!state.activeConversationId) return;
+  if (!ensureMessageConsent()) return;
+  els.pollQuestion.value = '';
+  els.pollForm.querySelectorAll('.poll-option').forEach((input) => {
+    input.value = '';
+  });
+  els.pollDialog.showModal();
+});
+
+els.btnClosePoll.addEventListener('click', () => els.pollDialog.close());
+
+els.pollForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const options = [...els.pollForm.querySelectorAll('.poll-option')]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+  try {
+    const data = await api(`/api/conversations/${state.activeConversationId}/messages`, {
+      method: 'POST',
+      body: {
+        type: 'poll',
+        body: els.pollQuestion.value.trim(),
+        options,
+        reply_to_id: state.replyTo?.id || null,
+      },
+    });
+    state.replyTo = null;
+    updateReplyBar();
+    upsertLocalMessage(data.message);
+    els.pollDialog.close();
   } catch (error) {
     showToast(error.message);
   }
