@@ -107,6 +107,14 @@
           <input id="chat-search" type="search" placeholder="Chats durchsuchen" />
         </div>
 
+        <section class="status-rail" aria-label="Status">
+          <button type="button" id="btn-add-status" class="status-chip status-chip-add">
+            <span class="status-avatar add">+</span>
+            <span class="status-label">Mein Status</span>
+          </button>
+          <div id="status-list" class="status-list"></div>
+        </section>
+
         <div id="conversation-list" class="conversation-list" role="list"></div>
       </aside>
 
@@ -147,6 +155,14 @@
           </div>
 
           <form id="composer" class="composer">
+            <button type="button" id="btn-attach" class="icon-btn composer-btn" title="Foto" aria-label="Foto senden">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <circle cx="8.5" cy="10.5" r="1.5" />
+                <path d="M21 15l-5-5L5 19" />
+              </svg>
+            </button>
+            <input id="image-input" type="file" accept="image/*" hidden />
             <input
               id="message-input"
               type="text"
@@ -154,12 +170,25 @@
               placeholder="Nachricht schreiben…"
               autocomplete="off"
             />
+            <button type="button" id="btn-voice" class="icon-btn composer-btn" title="Sprachnachricht" aria-label="Sprachnachricht">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" />
+                <path d="M19 11a7 7 0 0 1-14 0" />
+                <path d="M12 18v3" />
+              </svg>
+            </button>
             <button type="submit" class="send-btn" aria-label="Senden">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
               </svg>
             </button>
           </form>
+          <div id="voice-bar" class="voice-bar is-hidden">
+            <span class="voice-dot"></span>
+            <span id="voice-timer">0:00</span>
+            <button type="button" id="btn-voice-cancel" class="btn btn-secondary">Abbruch</button>
+            <button type="button" id="btn-voice-send" class="btn btn-primary">Senden</button>
+          </div>
         </div>
       </section>
     </main>
@@ -190,6 +219,38 @@
           <button type="submit" class="btn btn-primary">Gruppe erstellen</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="status-dialog" class="sheet">
+      <form id="status-form" class="sheet-inner">
+        <header class="sheet-header">
+          <h2>Status posten</h2>
+          <button type="button" id="btn-close-status" class="icon-btn" aria-label="Schließen">×</button>
+        </header>
+        <div class="group-form-fields">
+          <label>
+            <span>Text</span>
+            <input id="status-text" maxlength="300" placeholder="Was gibt's Neues?" />
+          </label>
+          <label class="file-label">
+            <span>Optional: Bild</span>
+            <input id="status-image" type="file" accept="image/*" />
+          </label>
+          <button type="submit" class="btn btn-primary">Veröffentlichen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="status-viewer" class="status-viewer">
+      <div class="status-viewer-inner">
+        <button type="button" id="btn-close-viewer" class="icon-btn status-close" aria-label="Schließen">×</button>
+        <div id="status-viewer-media" class="status-viewer-media"></div>
+        <div class="status-viewer-meta">
+          <strong id="status-viewer-name"></strong>
+          <span id="status-viewer-time"></span>
+          <p id="status-viewer-body"></p>
+        </div>
+      </div>
     </dialog>
 
     <div id="toast" class="toast is-hidden" role="status"></div>

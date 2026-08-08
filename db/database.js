@@ -57,16 +57,19 @@ export function initDatabase() {
     );
 
     CREATE TABLE IF NOT EXISTS messages (
-      id              TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      sender_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      body            TEXT NOT NULL,
-      reply_to_id     TEXT REFERENCES messages(id) ON DELETE SET NULL,
-      created_at      TEXT NOT NULL,
-      edited_at       TEXT,
-      deleted_at      TEXT,
-      delivered_at    TEXT,
-      read_at         TEXT
+      id                 TEXT PRIMARY KEY,
+      conversation_id    TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      sender_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body               TEXT NOT NULL DEFAULT '',
+      type               TEXT NOT NULL DEFAULT 'text',
+      media_url          TEXT,
+      media_duration_ms  INTEGER,
+      reply_to_id        TEXT REFERENCES messages(id) ON DELETE SET NULL,
+      created_at         TEXT NOT NULL,
+      edited_at          TEXT,
+      deleted_at         TEXT,
+      delivered_at       TEXT,
+      read_at            TEXT
     );
 
     CREATE TABLE IF NOT EXISTS message_reactions (
@@ -77,6 +80,23 @@ export function initDatabase() {
       PRIMARY KEY (message_id, user_id)
     );
 
+    CREATE TABLE IF NOT EXISTS statuses (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type        TEXT NOT NULL DEFAULT 'text',
+      body        TEXT NOT NULL DEFAULT '',
+      media_url   TEXT,
+      created_at  TEXT NOT NULL,
+      expires_at  TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS status_views (
+      status_id  TEXT NOT NULL REFERENCES statuses(id) ON DELETE CASCADE,
+      viewer_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      viewed_at  TEXT NOT NULL,
+      PRIMARY KEY (status_id, viewer_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_conversation
       ON messages(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user
@@ -85,6 +105,8 @@ export function initDatabase() {
       ON conversation_members(user_id);
     CREATE INDEX IF NOT EXISTS idx_reactions_message
       ON message_reactions(message_id);
+    CREATE INDEX IF NOT EXISTS idx_statuses_expires
+      ON statuses(expires_at);
   `);
 
   migrateSchema(db);
@@ -122,6 +144,15 @@ function migrateSchema(database) {
   }
   if (!msgCols.includes('deleted_at')) {
     database.exec('ALTER TABLE messages ADD COLUMN deleted_at TEXT');
+  }
+  if (!msgCols.includes('type')) {
+    database.exec(`ALTER TABLE messages ADD COLUMN type TEXT NOT NULL DEFAULT 'text'`);
+  }
+  if (!msgCols.includes('media_url')) {
+    database.exec('ALTER TABLE messages ADD COLUMN media_url TEXT');
+  }
+  if (!msgCols.includes('media_duration_ms')) {
+    database.exec('ALTER TABLE messages ADD COLUMN media_duration_ms INTEGER');
   }
 }
 
@@ -439,7 +470,7 @@ export function getConversationForUser(conversationId, userId) {
 
   const lastMessageRow = getDb()
     .prepare(
-      `SELECT id, conversation_id, sender_id, body, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at
+      `SELECT id, conversation_id, sender_id, body, type, media_url, media_duration_ms, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at
        FROM messages
        WHERE conversation_id = ?
        ORDER BY created_at DESC
@@ -479,6 +510,12 @@ function formatMessagePreview(row) {
       body: 'Nachricht gelöscht',
     };
   }
+  if (row.type === 'image') {
+    return { ...row, body: row.body ? `📷 ${row.body}` : '📷 Foto' };
+  }
+  if (row.type === 'audio') {
+    return { ...row, body: '🎤 Sprachnachricht' };
+  }
   return row;
 }
 
@@ -505,25 +542,37 @@ function hydrateMessage(row, reactionsMap, usersById) {
   const reply = row.reply_to_id
     ? getDb()
         .prepare(
-          `SELECT id, sender_id, body, deleted_at
+          `SELECT id, sender_id, body, type, deleted_at
            FROM messages WHERE id = ?`
         )
         .get(row.reply_to_id)
     : null;
 
   const deleted = Boolean(row.deleted_at);
+  let replyBody = '';
+  if (reply) {
+    if (reply.deleted_at) replyBody = 'Nachricht gelöscht';
+    else if (reply.type === 'image') replyBody = reply.body || 'Foto';
+    else if (reply.type === 'audio') replyBody = 'Sprachnachricht';
+    else replyBody = reply.body;
+  }
+
   return {
     id: row.id,
     conversation_id: row.conversation_id,
     sender_id: row.sender_id,
     sender_name: usersById.get(row.sender_id)?.display_name || null,
     body: deleted ? '' : row.body,
+    type: row.type || 'text',
+    media_url: deleted ? null : row.media_url || null,
+    media_duration_ms: row.media_duration_ms || null,
     reply_to: reply
       ? {
           id: reply.id,
           sender_id: reply.sender_id,
           sender_name: usersById.get(reply.sender_id)?.display_name || null,
-          body: reply.deleted_at ? 'Nachricht gelöscht' : reply.body,
+          body: replyBody,
+          type: reply.type || 'text',
         }
       : null,
     created_at: row.created_at,
@@ -547,7 +596,7 @@ export function listMessages(conversationId, userId, { limit = 100 } = {}) {
 
   const messages = getDb()
     .prepare(
-      `SELECT id, conversation_id, sender_id, body, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at
+      `SELECT id, conversation_id, sender_id, body, type, media_url, media_duration_ms, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at
        FROM messages
        WHERE conversation_id = ?
        ORDER BY created_at ASC
@@ -572,7 +621,7 @@ export function listMessages(conversationId, userId, { limit = 100 } = {}) {
 export function getMessageById(messageId) {
   const row = getDb()
     .prepare(
-      `SELECT id, conversation_id, sender_id, body, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at
+      `SELECT id, conversation_id, sender_id, body, type, media_url, media_duration_ms, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at
        FROM messages WHERE id = ?`
     )
     .get(messageId);
@@ -591,10 +640,19 @@ export function getMessageById(messageId) {
   return hydrateMessage(row, reactionsMap, usersById);
 }
 
-export function createMessage(conversationId, senderId, body, replyToId = null) {
+export function createMessage(
+  conversationId,
+  senderId,
+  { body = '', replyToId = null, type = 'text', mediaUrl = null, mediaDurationMs = null } = {}
+) {
+  const msgType = ['text', 'image', 'audio'].includes(type) ? type : 'text';
   const clean = String(body || '').trim();
-  if (!clean) {
+
+  if (msgType === 'text' && !clean) {
     throw Object.assign(new Error('Nachricht darf nicht leer sein.'), { status: 400 });
+  }
+  if ((msgType === 'image' || msgType === 'audio') && !mediaUrl) {
+    throw Object.assign(new Error('Medien-Datei fehlt.'), { status: 400 });
   }
   if (clean.length > 2000) {
     throw Object.assign(new Error('Nachricht ist zu lang (max. 2000 Zeichen).'), { status: 400 });
@@ -625,6 +683,9 @@ export function createMessage(conversationId, senderId, body, replyToId = null) 
     conversation_id: conversationId,
     sender_id: senderId,
     body: clean,
+    type: msgType,
+    media_url: mediaUrl,
+    media_duration_ms: mediaDurationMs,
     reply_to_id: replyId,
     created_at: nowIso(),
     edited_at: null,
@@ -635,8 +696,8 @@ export function createMessage(conversationId, senderId, body, replyToId = null) 
 
   getDb()
     .prepare(
-      `INSERT INTO messages (id, conversation_id, sender_id, body, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at)
-       VALUES (@id, @conversation_id, @sender_id, @body, @reply_to_id, @created_at, @edited_at, @deleted_at, @delivered_at, @read_at)`
+      `INSERT INTO messages (id, conversation_id, sender_id, body, type, media_url, media_duration_ms, reply_to_id, created_at, edited_at, deleted_at, delivered_at, read_at)
+       VALUES (@id, @conversation_id, @sender_id, @body, @type, @media_url, @media_duration_ms, @reply_to_id, @created_at, @edited_at, @deleted_at, @delivered_at, @read_at)`
     )
     .run(raw);
 
@@ -658,6 +719,9 @@ export function editMessage(messageId, userId, body) {
   }
   if (row.sender_id !== userId) {
     throw Object.assign(new Error('Nur eigene Nachrichten bearbeiten.'), { status: 403 });
+  }
+  if ((row.type || 'text') !== 'text') {
+    throw Object.assign(new Error('Nur Textnachrichten können bearbeitet werden.'), { status: 400 });
   }
 
   getDb()
@@ -770,6 +834,110 @@ export function getConversationMemberIds(conversationId) {
     .prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ?')
     .all(conversationId)
     .map((row) => row.user_id);
+}
+
+export function createStatus(userId, { type = 'text', body = '', mediaUrl = null } = {}) {
+  const statusType = ['text', 'image'].includes(type) ? type : 'text';
+  const clean = String(body || '').trim();
+
+  if (statusType === 'text' && !clean) {
+    throw Object.assign(new Error('Status-Text fehlt.'), { status: 400 });
+  }
+  if (statusType === 'image' && !mediaUrl) {
+    throw Object.assign(new Error('Status-Bild fehlt.'), { status: 400 });
+  }
+  if (clean.length > 300) {
+    throw Object.assign(new Error('Status ist zu lang (max. 300 Zeichen).'), { status: 400 });
+  }
+
+  const createdAt = nowIso();
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const id = newId('s_');
+
+  getDb()
+    .prepare(
+      `INSERT INTO statuses (id, user_id, type, body, media_url, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, userId, statusType, clean, mediaUrl, createdAt, expiresAt);
+
+  return getStatusById(id, userId);
+}
+
+export function getStatusById(statusId, viewerId) {
+  const row = getDb()
+    .prepare(
+      `SELECT s.*, u.username, u.display_name, u.avatar_color
+       FROM statuses s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.id = ?`
+    )
+    .get(statusId);
+  if (!row) return null;
+  return hydrateStatus(row, viewerId);
+}
+
+function hydrateStatus(row, viewerId) {
+  const views = getDb()
+    .prepare('SELECT COUNT(*) AS count FROM status_views WHERE status_id = ?')
+    .get(row.id).count;
+  const viewed = viewerId
+    ? Boolean(
+        getDb()
+          .prepare('SELECT 1 AS ok FROM status_views WHERE status_id = ? AND viewer_id = ?')
+          .get(row.id, viewerId)
+      )
+    : false;
+
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    type: row.type,
+    body: row.body,
+    media_url: row.media_url,
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    view_count: views,
+    viewed,
+    user: {
+      id: row.user_id,
+      username: row.username,
+      display_name: row.display_name,
+      avatar_color: row.avatar_color,
+    },
+  };
+}
+
+export function listActiveStatuses(viewerId) {
+  getDb().prepare(`DELETE FROM statuses WHERE expires_at < ?`).run(nowIso());
+
+  const rows = getDb()
+    .prepare(
+      `SELECT s.*, u.username, u.display_name, u.avatar_color
+       FROM statuses s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.expires_at > ?
+       ORDER BY s.created_at DESC`
+    )
+    .all(nowIso());
+
+  return rows.map((row) => hydrateStatus(row, viewerId));
+}
+
+export function markStatusViewed(statusId, viewerId) {
+  const status = getDb().prepare('SELECT * FROM statuses WHERE id = ?').get(statusId);
+  if (!status || status.expires_at < nowIso()) {
+    throw Object.assign(new Error('Status nicht gefunden.'), { status: 404 });
+  }
+
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO status_views (status_id, viewer_id, viewed_at)
+       VALUES (?, ?, ?)`
+    )
+    .run(statusId, viewerId, nowIso());
+
+  return getStatusById(statusId, viewerId);
 }
 
 function publicUser(row) {

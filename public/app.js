@@ -7,6 +7,7 @@ const state = {
   socket: null,
   conversations: [],
   users: [],
+  statuses: [],
   onlineIds: new Set(),
   lastSeen: new Map(),
   activeConversationId: null,
@@ -18,6 +19,10 @@ const state = {
   replyTo: null,
   openReactionFor: null,
   selectedGroupMembers: new Set(),
+  mediaRecorder: null,
+  voiceChunks: [],
+  voiceStartedAt: 0,
+  voiceTimer: null,
 };
 
 const els = {
@@ -40,6 +45,13 @@ const els = {
   typingIndicator: document.getElementById('typing-indicator'),
   composer: document.getElementById('composer'),
   messageInput: document.getElementById('message-input'),
+  btnAttach: document.getElementById('btn-attach'),
+  imageInput: document.getElementById('image-input'),
+  btnVoice: document.getElementById('btn-voice'),
+  voiceBar: document.getElementById('voice-bar'),
+  voiceTimer: document.getElementById('voice-timer'),
+  btnVoiceCancel: document.getElementById('btn-voice-cancel'),
+  btnVoiceSend: document.getElementById('btn-voice-send'),
   btnNewChat: document.getElementById('btn-new-chat'),
   btnNewGroup: document.getElementById('btn-new-group'),
   btnEmptyNew: document.getElementById('btn-empty-new'),
@@ -56,6 +68,19 @@ const els = {
   replyBarName: document.getElementById('reply-bar-name'),
   replyBarBody: document.getElementById('reply-bar-body'),
   btnCancelReply: document.getElementById('btn-cancel-reply'),
+  statusList: document.getElementById('status-list'),
+  btnAddStatus: document.getElementById('btn-add-status'),
+  statusDialog: document.getElementById('status-dialog'),
+  statusForm: document.getElementById('status-form'),
+  statusText: document.getElementById('status-text'),
+  statusImage: document.getElementById('status-image'),
+  btnCloseStatus: document.getElementById('btn-close-status'),
+  statusViewer: document.getElementById('status-viewer'),
+  statusViewerMedia: document.getElementById('status-viewer-media'),
+  statusViewerName: document.getElementById('status-viewer-name'),
+  statusViewerTime: document.getElementById('status-viewer-time'),
+  statusViewerBody: document.getElementById('status-viewer-body'),
+  btnCloseViewer: document.getElementById('btn-close-viewer'),
   toast: document.getElementById('toast'),
 };
 
@@ -103,6 +128,13 @@ function formatLastSeen(iso) {
   return `zuletzt gesehen ${date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} ${formatTime(iso)}`;
 }
 
+function formatDuration(ms = 0) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
 function dayLabel(iso) {
   const date = new Date(iso);
   const today = new Date();
@@ -134,13 +166,15 @@ function showAuthError(message) {
   els.authError.textContent = message || '';
 }
 
-async function api(path, { method = 'GET', body, auth = true } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+async function api(path, { method = 'GET', body, auth = true, formData } = {}) {
+  const headers = {};
   if (auth && state.token) headers.Authorization = `Bearer ${state.token}`;
+  if (!formData) headers['Content-Type'] = 'application/json';
+
   const res = await fetch(path, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: formData || (body ? JSON.stringify(body) : undefined),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Anfrage fehlgeschlagen.');
@@ -153,9 +187,7 @@ function conversationTitle(conversation) {
 }
 
 function conversationSubtitle(conversation) {
-  if (conversation.type === 'group') {
-    return `${conversation.members?.length || 0} Mitglieder`;
-  }
+  if (conversation.type === 'group') return `${conversation.members?.length || 0} Mitglieder`;
   return conversation.peer?.status || `@${conversation.peer?.username || ''}`;
 }
 
@@ -174,7 +206,6 @@ function showAuth() {
 
 function connectSocket() {
   if (state.socket) state.socket.disconnect();
-
   state.socket = io({ auth: { token: state.token } });
 
   state.socket.on('presence:snapshot', ({ online_user_ids }) => {
@@ -205,8 +236,6 @@ function connectSocket() {
     if (user) user.status = status;
     for (const conversation of state.conversations) {
       if (conversation.peer?.id === user_id) conversation.peer.status = status;
-      const member = conversation.members?.find((m) => m.id === user_id);
-      if (member) member.status = status;
     }
     renderConversationList();
     renderActiveHeader();
@@ -216,15 +245,17 @@ function connectSocket() {
     await refreshConversations();
   });
 
+  state.socket.on('status:new', async () => {
+    await refreshStatuses();
+  });
+
   state.socket.on('message:new', async ({ message, conversation_id }) => {
     let existing = state.conversations.find((c) => c.id === conversation_id);
     if (!existing) {
       await refreshConversations();
       existing = state.conversations.find((c) => c.id === conversation_id);
     } else {
-      existing.last_message = message.deleted_at
-        ? { ...message, body: 'Nachricht gelöscht' }
-        : message;
+      existing.last_message = previewFromMessage(message);
       if (state.activeConversationId !== conversation_id && message.sender_id !== state.user.id) {
         existing.unread_count = (existing.unread_count || 0) + 1;
       }
@@ -239,14 +270,10 @@ function connectSocket() {
   });
 
   state.socket.on('message:updated', ({ message }) => {
-    if (state.activeConversationId === message.conversation_id) {
-      upsertLocalMessage(message);
-    }
+    if (state.activeConversationId === message.conversation_id) upsertLocalMessage(message);
     const conversation = state.conversations.find((c) => c.id === message.conversation_id);
     if (conversation?.last_message?.id === message.id) {
-      conversation.last_message = message.deleted_at
-        ? { ...message, body: 'Nachricht gelöscht' }
-        : message;
+      conversation.last_message = previewFromMessage(message);
       renderConversationList();
     }
   });
@@ -279,6 +306,13 @@ function connectSocket() {
   });
 }
 
+function previewFromMessage(message) {
+  if (message.deleted_at) return { ...message, body: 'Nachricht gelöscht' };
+  if (message.type === 'image') return { ...message, body: message.body ? `📷 ${message.body}` : '📷 Foto' };
+  if (message.type === 'audio') return { ...message, body: '🎤 Sprachnachricht' };
+  return message;
+}
+
 function upsertLocalMessage(message) {
   const idx = state.messages.findIndex((m) => m.id === message.id);
   if (idx >= 0) state.messages[idx] = message;
@@ -298,7 +332,7 @@ async function bootstrapSession() {
     state.onlineIds = new Set(me.online_user_ids || []);
     showApp();
     connectSocket();
-    await Promise.all([refreshConversations(), refreshUsers()]);
+    await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
   } catch {
     localStorage.removeItem(TOKEN_KEY);
     state.token = null;
@@ -318,6 +352,62 @@ async function refreshUsers() {
   state.onlineIds = new Set(data.online_user_ids || []);
   for (const user of state.users) {
     if (user.last_seen_at) state.lastSeen.set(user.id, user.last_seen_at);
+  }
+}
+
+async function refreshStatuses() {
+  const data = await api('/api/statuses');
+  state.statuses = data.statuses || [];
+  renderStatusList();
+}
+
+function renderStatusList() {
+  const byUser = new Map();
+  for (const status of state.statuses) {
+    if (!byUser.has(status.user_id)) byUser.set(status.user_id, []);
+    byUser.get(status.user_id).push(status);
+  }
+
+  const chips = [];
+  for (const [userId, list] of byUser) {
+    const latest = list[0];
+    const unseen = list.some((s) => !s.viewed && s.user_id !== state.user.id);
+    chips.push(`
+      <button type="button" class="status-chip" data-user="${userId}">
+        <span class="status-avatar ${unseen ? 'has-new' : ''}" style="background:linear-gradient(145deg, ${latest.user.avatar_color}, color-mix(in srgb, ${latest.user.avatar_color} 65%, #041f1d))">${initials(latest.user.display_name)}</span>
+        <span class="status-label">${escapeHtml(userId === state.user.id ? 'Du' : latest.user.display_name.split(' ')[0])}</span>
+      </button>`);
+  }
+
+  els.statusList.innerHTML = chips.join('');
+  els.statusList.querySelectorAll('.status-chip').forEach((btn) => {
+    btn.addEventListener('click', () => openStatusViewer(btn.dataset.user));
+  });
+}
+
+async function openStatusViewer(userId) {
+  const list = state.statuses.filter((s) => s.user_id === userId);
+  if (!list.length) return;
+  const status = list[0];
+
+  els.statusViewerName.textContent = status.user.display_name;
+  els.statusViewerTime.textContent = formatListTime(status.created_at);
+  els.statusViewerBody.textContent = status.body || '';
+
+  if (status.type === 'image' && status.media_url) {
+    els.statusViewerMedia.innerHTML = `<img src="${status.media_url}" alt="" />`;
+  } else {
+    els.statusViewerMedia.innerHTML = `<div>${escapeHtml(status.body || '')}</div>`;
+  }
+
+  els.statusViewer.showModal();
+  if (status.user_id !== state.user.id) {
+    try {
+      await api(`/api/statuses/${status.id}/view`, { method: 'POST', body: {} });
+      await refreshStatuses();
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -341,9 +431,7 @@ function renderConversationList() {
     .map((conversation) => {
       const isGroup = conversation.type === 'group';
       const online = !isGroup && state.onlineIds.has(conversation.peer?.id);
-      const color = isGroup
-        ? '#0f766e'
-        : conversation.peer?.avatar_color || '#0D7377';
+      const color = isGroup ? '#0f766e' : conversation.peer?.avatar_color || '#0D7377';
       const name = conversationTitle(conversation);
       const preview = conversation.last_message?.body || 'Noch keine Nachrichten';
       const time = formatListTime(conversation.last_message?.created_at || conversation.created_at);
@@ -446,6 +534,20 @@ function reactionSummary(message) {
     .join('')}</div>`;
 }
 
+function mediaHtml(message) {
+  if (message.deleted_at) return '';
+  if (message.type === 'image' && message.media_url) {
+    return `<img class="bubble-media" src="${message.media_url}" alt="Foto" data-lightbox="${message.media_url}" />`;
+  }
+  if (message.type === 'audio' && message.media_url) {
+    return `<div class="audio-msg">
+      <audio controls preload="metadata" src="${message.media_url}"></audio>
+      <span class="audio-duration">${formatDuration(message.media_duration_ms || 0)}</span>
+    </div>`;
+  }
+  return '';
+}
+
 function renderMessages() {
   const conversation = state.conversations.find((c) => c.id === state.activeConversationId);
   const isGroup = conversation?.type === 'group';
@@ -477,7 +579,11 @@ function renderMessages() {
         ? `<div class="bubble-sender">${escapeHtml(message.sender_name || '')}</div>`
         : '';
 
-    const body = deleted ? 'Diese Nachricht wurde gelöscht' : escapeHtml(message.body);
+    const body = deleted
+      ? 'Diese Nachricht wurde gelöscht'
+      : message.body
+        ? escapeHtml(message.body)
+        : '';
     const edited = message.edited_at && !deleted ? ' · bearbeitet' : '';
 
     const actions = deleted
@@ -485,7 +591,7 @@ function renderMessages() {
       : `<div class="msg-actions">
           <button type="button" class="msg-action" data-reply="${message.id}">Antworten</button>
           <button type="button" class="msg-action" data-react-open="${message.id}">Reagieren</button>
-          ${mine ? `<button type="button" class="msg-action" data-edit="${message.id}">Bearbeiten</button>` : ''}
+          ${mine && message.type === 'text' ? `<button type="button" class="msg-action" data-edit="${message.id}">Bearbeiten</button>` : ''}
           ${mine ? `<button type="button" class="msg-action" data-delete="${message.id}">Löschen</button>` : ''}
         </div>`;
 
@@ -500,7 +606,8 @@ function renderMessages() {
       <div class="bubble ${deleted ? 'is-deleted' : ''}">
         ${senderHtml}
         ${replyHtml}
-        <div class="bubble-body">${body}</div>
+        ${mediaHtml(message)}
+        ${body ? `<div class="bubble-body">${body}</div>` : ''}
         <div class="bubble-meta">
           <span>${formatTime(message.created_at)}${edited}</span>
           ${ticksFor(message)}
@@ -518,6 +625,16 @@ function renderMessages() {
 }
 
 function bindMessageActions() {
+  els.messageList.querySelectorAll('[data-lightbox]').forEach((img) => {
+    img.addEventListener('click', () => {
+      const overlay = document.createElement('div');
+      overlay.className = 'lightbox';
+      overlay.innerHTML = `<img src="${img.dataset.lightbox}" alt="" />`;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.appendChild(overlay);
+    });
+  });
+
   els.messageList.querySelectorAll('[data-reply]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const message = state.messages.find((m) => m.id === btn.dataset.reply);
@@ -588,8 +705,14 @@ function updateReplyBar() {
     return;
   }
   els.replyBar.classList.remove('is-hidden');
-  els.replyBarName.textContent = state.replyTo.sender_name || (state.replyTo.sender_id === state.user.id ? 'Du' : 'Antwort');
-  els.replyBarBody.textContent = state.replyTo.body;
+  els.replyBarName.textContent =
+    state.replyTo.sender_name || (state.replyTo.sender_id === state.user.id ? 'Du' : 'Antwort');
+  els.replyBarBody.textContent =
+    state.replyTo.type === 'image'
+      ? 'Foto'
+      : state.replyTo.type === 'audio'
+        ? 'Sprachnachricht'
+        : state.replyTo.body;
 }
 
 function scrollMessagesToBottom(smooth = true) {
@@ -624,7 +747,7 @@ async function sendMessage(body) {
 
   const conversation = state.conversations.find((c) => c.id === conversationId);
   if (conversation) {
-    conversation.last_message = data.message;
+    conversation.last_message = previewFromMessage(data.message);
     state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
     renderConversationList();
   }
@@ -632,11 +755,125 @@ async function sendMessage(body) {
   state.socket?.emit('typing:stop', { conversation_id: conversationId });
 }
 
+async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' } = {}) {
+  const conversationId = state.activeConversationId;
+  if (!conversationId || !file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  if (caption) formData.append('body', caption);
+  if (state.replyTo) formData.append('reply_to_id', state.replyTo.id);
+  if (durationMs != null) formData.append('media_duration_ms', String(durationMs));
+  if (typeHint) formData.append('type', typeHint);
+
+  const data = await api(`/api/conversations/${conversationId}/media`, {
+    method: 'POST',
+    formData,
+  });
+
+  state.replyTo = null;
+  updateReplyBar();
+  upsertLocalMessage(data.message);
+
+  const conversation = state.conversations.find((c) => c.id === conversationId);
+  if (conversation) {
+    conversation.last_message = previewFromMessage(data.message);
+    state.conversations = [conversation, ...state.conversations.filter((c) => c.id !== conversationId)];
+    renderConversationList();
+  }
+}
+
+async function startVoiceRecording() {
+  if (!state.activeConversationId) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast('Mikrofon nicht verfügbar');
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : '';
+    state.mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    state.voiceChunks = [];
+    state.voiceStartedAt = Date.now();
+
+    state.mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) state.voiceChunks.push(event.data);
+    };
+
+    state.mediaRecorder.start();
+    els.composer.classList.add('is-hidden');
+    els.voiceBar.classList.remove('is-hidden');
+    els.btnVoice.classList.add('is-recording');
+    els.voiceTimer.textContent = '0:00';
+    state.voiceTimer = setInterval(() => {
+      els.voiceTimer.textContent = formatDuration(Date.now() - state.voiceStartedAt);
+    }, 250);
+  } catch {
+    showToast('Mikrofon-Zugriff abgelehnt');
+  }
+}
+
+function stopVoiceTracks() {
+  state.mediaRecorder?.stream?.getTracks?.().forEach((track) => track.stop());
+}
+
+function cancelVoiceRecording() {
+  clearInterval(state.voiceTimer);
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+    state.mediaRecorder.onstop = null;
+    state.mediaRecorder.stop();
+  }
+  stopVoiceTracks();
+  state.mediaRecorder = null;
+  state.voiceChunks = [];
+  els.voiceBar.classList.add('is-hidden');
+  els.composer.classList.remove('is-hidden');
+  els.btnVoice.classList.remove('is-recording');
+}
+
+function finishVoiceRecording(send) {
+  clearInterval(state.voiceTimer);
+  const recorder = state.mediaRecorder;
+  if (!recorder) return;
+
+  recorder.onstop = async () => {
+    stopVoiceTracks();
+    const duration = Date.now() - state.voiceStartedAt;
+    const blob = new Blob(state.voiceChunks, { type: recorder.mimeType || 'audio/webm' });
+    state.mediaRecorder = null;
+    state.voiceChunks = [];
+    els.voiceBar.classList.add('is-hidden');
+    els.composer.classList.remove('is-hidden');
+    els.btnVoice.classList.remove('is-recording');
+
+    if (!send || duration < 500 || blob.size < 100) {
+      showToast('Aufnahme zu kurz');
+      return;
+    }
+
+    const ext = (recorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
+    const file = new File([blob], `voice.${ext}`, { type: blob.type || 'audio/webm' });
+    try {
+      await sendMediaFile(file, { typeHint: 'audio', durationMs: duration });
+    } catch (error) {
+      showToast(error.message);
+    }
+  };
+
+  if (recorder.state !== 'inactive') recorder.stop();
+}
+
 function openNewChatDialog() {
-  els.contactList.innerHTML = state.users
-    .map((user) => {
-      const online = state.onlineIds.has(user.id);
-      return `
+  els.contactList.innerHTML =
+    state.users
+      .map((user) => {
+        const online = state.onlineIds.has(user.id);
+        return `
         <button type="button" class="contact-item" data-id="${user.id}">
           <div class="avatar ${online ? 'is-online' : ''}" style="background:linear-gradient(145deg, ${user.avatar_color}, color-mix(in srgb, ${user.avatar_color} 65%, #041f1d))">${initials(user.display_name)}</div>
           <div class="contact-main">
@@ -644,8 +881,8 @@ function openNewChatDialog() {
             <div class="contact-status">${online ? 'online' : formatLastSeen(user.last_seen_at)}</div>
           </div>
         </button>`;
-    })
-    .join('') || '<p style="padding:16px;color:var(--muted);">Keine Kontakte.</p>';
+      })
+      .join('') || '<p style="padding:16px;color:var(--muted);">Keine Kontakte.</p>';
 
   els.contactList.querySelectorAll('.contact-item').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -689,11 +926,8 @@ function renderGroupContacts() {
 
   els.groupContactList.querySelectorAll('.contact-item').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (state.selectedGroupMembers.has(btn.dataset.id)) {
-        state.selectedGroupMembers.delete(btn.dataset.id);
-      } else {
-        state.selectedGroupMembers.add(btn.dataset.id);
-      }
+      if (state.selectedGroupMembers.has(btn.dataset.id)) state.selectedGroupMembers.delete(btn.dataset.id);
+      else state.selectedGroupMembers.add(btn.dataset.id);
       renderGroupContacts();
     });
   });
@@ -716,7 +950,7 @@ async function handleAuthSuccess(data) {
   localStorage.setItem(TOKEN_KEY, data.token);
   showApp();
   connectSocket();
-  await Promise.all([refreshConversations(), refreshUsers()]);
+  await Promise.all([refreshConversations(), refreshUsers(), refreshStatuses()]);
 }
 
 els.loginForm.addEventListener('submit', async (event) => {
@@ -803,6 +1037,58 @@ els.newGroupForm.addEventListener('submit', async (event) => {
     state.conversations.unshift(data.conversation);
     await openConversation(data.conversation.id);
     showToast('Gruppe erstellt');
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnAttach.addEventListener('click', () => {
+  if (!state.activeConversationId) return;
+  els.imageInput.click();
+});
+
+els.imageInput.addEventListener('change', async () => {
+  const file = els.imageInput.files?.[0];
+  els.imageInput.value = '';
+  if (!file) return;
+  try {
+    await sendMediaFile(file, { typeHint: 'image' });
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.btnVoice.addEventListener('click', () => startVoiceRecording());
+els.btnVoiceCancel.addEventListener('click', () => cancelVoiceRecording());
+els.btnVoiceSend.addEventListener('click', () => finishVoiceRecording(true));
+
+els.btnAddStatus.addEventListener('click', () => {
+  els.statusText.value = '';
+  els.statusImage.value = '';
+  els.statusDialog.showModal();
+});
+
+els.btnCloseStatus.addEventListener('click', () => els.statusDialog.close());
+els.btnCloseViewer.addEventListener('click', () => els.statusViewer.close());
+
+els.statusForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const formData = new FormData();
+  const text = els.statusText.value.trim();
+  const file = els.statusImage.files?.[0];
+  if (!text && !file) {
+    showToast('Text oder Bild nötig');
+    return;
+  }
+  if (text) formData.append('body', text);
+  if (file) formData.append('file', file);
+  formData.append('type', file ? 'image' : 'text');
+
+  try {
+    await api('/api/statuses', { method: 'POST', formData });
+    els.statusDialog.close();
+    await refreshStatuses();
+    showToast('Status veröffentlicht');
   } catch (error) {
     showToast(error.message);
   }

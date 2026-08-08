@@ -1,7 +1,10 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { join, dirname } from 'path';
+import multer from 'multer';
+import { randomBytes } from 'crypto';
+import { existsSync, mkdirSync } from 'fs';
+import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   initDatabase,
@@ -25,19 +28,57 @@ import {
   markMessagesDelivered,
   markMessagesRead,
   getConversationMemberIds,
+  createStatus,
+  listActiveStatuses,
+  markStatusViewed,
 } from './db/database.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT ?? 3000;
+const UPLOAD_DIR = join(__dirname, 'uploads');
 
+mkdirSync(UPLOAD_DIR, { recursive: true });
 initDatabase();
 
 const onlineUsers = new Map();
 
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const ext = extname(file.originalname || '').toLowerCase() || guessExt(file.mimetype);
+    cb(null, `${Date.now()}_${randomBytes(8).toString('hex')}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok =
+      file.mimetype.startsWith('image/') ||
+      file.mimetype.startsWith('audio/') ||
+      file.mimetype === 'video/webm';
+    cb(ok ? null : new Error('Nur Bilder oder Audio erlaubt.'), ok);
+  },
+});
+
+function guessExt(mime = '') {
+  if (mime.includes('png')) return '.png';
+  if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg';
+  if (mime.includes('webp')) return '.webp';
+  if (mime.includes('gif')) return '.gif';
+  if (mime.includes('ogg')) return '.ogg';
+  if (mime.includes('mpeg') || mime.includes('mp3')) return '.mp3';
+  if (mime.includes('webm')) return '.webm';
+  if (mime.includes('wav')) return '.wav';
+  return '';
+}
+
 const io = new Server(httpServer, {
   cors: { origin: true },
+  maxHttpBufferSize: 1e7,
 });
 
 app.use((req, res, next) => {
@@ -51,7 +92,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '256kb' }));
+app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(join(__dirname, 'public')));
 
 function authMiddleware(req, res, next) {
@@ -179,12 +221,13 @@ app.get('/api/conversations/:id/messages', authMiddleware, (req, res) => {
 
 app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
   try {
-    const message = createMessage(
-      req.params.id,
-      req.user.id,
-      req.body.body,
-      req.body.reply_to_id || null
-    );
+    const message = createMessage(req.params.id, req.user.id, {
+      body: req.body.body,
+      replyToId: req.body.reply_to_id || null,
+      type: req.body.type || 'text',
+      mediaUrl: req.body.media_url || null,
+      mediaDurationMs: req.body.media_duration_ms || null,
+    });
     emitToConversation(req.params.id, 'message:new', {
       message,
       conversation_id: req.params.id,
@@ -194,6 +237,49 @@ app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
     sendError(res, error);
   }
 });
+
+app.post(
+  '/api/conversations/:id/media',
+  authMiddleware,
+  (req, res, next) => {
+    upload.single('file')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message || 'Upload fehlgeschlagen.' });
+      }
+      next();
+    });
+  },
+  (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Datei fehlt.' });
+      }
+
+      const mime = req.file.mimetype || '';
+      const type = mime.startsWith('image/') ? 'image' : 'audio';
+      const mediaUrl = `/uploads/${req.file.filename}`;
+      const duration = req.body.media_duration_ms
+        ? Number(req.body.media_duration_ms)
+        : null;
+
+      const message = createMessage(req.params.id, req.user.id, {
+        body: req.body.body || '',
+        replyToId: req.body.reply_to_id || null,
+        type,
+        mediaUrl,
+        mediaDurationMs: Number.isFinite(duration) ? duration : null,
+      });
+
+      emitToConversation(req.params.id, 'message:new', {
+        message,
+        conversation_id: req.params.id,
+      });
+      res.status(201).json({ message });
+    } catch (error) {
+      sendError(res, error);
+    }
+  }
+);
 
 app.patch('/api/messages/:id', authMiddleware, (req, res) => {
   try {
@@ -239,6 +325,56 @@ app.post('/api/conversations/:id/read', authMiddleware, (req, res) => {
       });
     }
     res.json({ updated: messageIds.length });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/statuses', authMiddleware, (req, res) => {
+  try {
+    res.json({ statuses: listActiveStatuses(req.user.id) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post(
+  '/api/statuses',
+  authMiddleware,
+  (req, res, next) => {
+    if (req.is('multipart/form-data')) {
+      return upload.single('file')(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message || 'Upload fehlgeschlagen.' });
+        next();
+      });
+    }
+    next();
+  },
+  (req, res) => {
+    try {
+      const mediaUrl = req.file ? `/uploads/${req.file.filename}` : req.body.media_url || null;
+      const type = req.file?.mimetype?.startsWith('image/')
+        ? 'image'
+        : req.body.type || (mediaUrl ? 'image' : 'text');
+
+      const status = createStatus(req.user.id, {
+        type,
+        body: req.body.body || '',
+        mediaUrl,
+      });
+
+      io.emit('status:new', { status });
+      res.status(201).json({ status });
+    } catch (error) {
+      sendError(res, error);
+    }
+  }
+);
+
+app.post('/api/statuses/:id/view', authMiddleware, (req, res) => {
+  try {
+    const status = markStatusViewed(req.params.id, req.user.id);
+    res.json({ status });
   } catch (error) {
     sendError(res, error);
   }
@@ -308,6 +444,8 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: 'Interner Serverfehler.' });
 });
+
+if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
 
 httpServer.listen(PORT, () => {
   console.log(`Relay Messenger läuft auf http://localhost:${PORT}`);
