@@ -66,7 +66,7 @@
             aria-expanded="false"
             aria-controls="app-menu"
           >
-            <span class="hamburger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="hamburger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
           </button>
         </div>
       </header>
@@ -173,11 +173,17 @@
             </div>
 
             <form id="composer" class="composer">
-              <button type="button" id="btn-attach" class="icon-btn" title="Bild" aria-label="Bild senden">▣</button>
-              <button type="button" id="btn-poll" class="icon-btn" title="Umfrage" aria-label="Umfrage">≡</button>
-              <input id="image-input" type="file" accept="image/*" hidden />
+              <button type="button" id="btn-attach" class="icon-btn composer-cam" title="Kamera / Foto" aria-label="Foto aufnehmen oder wählen">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 5.5A4.5 4.5 0 1 1 7.5 13 4.5 4.5 0 0 1 12 8.5zm0 2A2.5 2.5 0 1 0 14.5 13 2.5 2.5 0 0 0 12 10.5z"/></svg>
+              </button>
+              <input id="image-input" type="file" accept="image/*" capture="environment" hidden />
               <input id="message-input" type="text" maxlength="2000" placeholder="Nachricht schreiben…" autocomplete="off" />
-              <button type="button" id="btn-voice" class="icon-btn" title="Sprachnotiz" aria-label="Sprachnotiz">◉</button>
+              <button type="button" id="btn-poll" class="icon-btn composer-poll" title="Umfrage" aria-label="Umfrage">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M5 4h4v16H5zm5 6h4v10h-4zm5-4h4v14h-4z"/></svg>
+              </button>
+              <button type="button" id="btn-voice" class="icon-btn composer-mic" title="Sprachnotiz" aria-label="Sprachnotiz aufnehmen">
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11z"/></svg>
+              </button>
               <button type="submit" class="send-btn" aria-label="Senden">→</button>
             </form>
             <div id="voice-bar" class="voice-bar is-hidden">

@@ -18,6 +18,7 @@ const state = {
   search: '',
   replyTo: null,
   openReactionFor: null,
+  openMsgMenu: null,
   selectedGroupMembers: new Set(),
   mediaRecorder: null,
   voiceChunks: [],
@@ -722,6 +723,7 @@ function renderConversationList() {
 }
 
 async function openConversation(conversationId) {
+  state.openMsgMenu = null;
   state.activeConversationId = conversationId;
   state.peerTyping = false;
   state.replyTo = null;
@@ -889,14 +891,22 @@ function renderMessages() {
         : '';
     const edited = message.edited_at && !deleted ? ' · bearbeitet' : '';
 
+    const menuOpen = state.openMsgMenu === message.id;
     const actions = deleted
       ? ''
-      : `<div class="msg-actions">
-          <button type="button" class="msg-action" data-reply="${message.id}">Antworten</button>
-          <button type="button" class="msg-action" data-react-open="${message.id}">Reagieren</button>
-          <button type="button" class="msg-action" data-pin="${message.id}">${message.pinned ? 'Lösen' : 'Anheften'}</button>
-          ${mine && message.type === 'text' ? `<button type="button" class="msg-action" data-edit="${message.id}">Bearbeiten</button>` : ''}
-          ${mine ? `<button type="button" class="msg-action" data-delete="${message.id}">Löschen</button>` : ''}
+      : `<div class="msg-toolbar">
+          <button type="button" class="msg-more" data-msg-menu="${message.id}" aria-label="Nachrichtenmenü" aria-expanded="${menuOpen ? 'true' : 'false'}">⋯</button>
+          ${
+            menuOpen
+              ? `<div class="msg-menu" role="menu">
+                  <button type="button" data-reply="${message.id}">Antworten</button>
+                  <button type="button" data-react-open="${message.id}">Reagieren</button>
+                  <button type="button" data-pin="${message.id}">${message.pinned ? 'Anheften lösen' : 'Anheften'}</button>
+                  ${mine && message.type === 'text' ? `<button type="button" data-edit="${message.id}">Bearbeiten</button>` : ''}
+                  ${mine ? `<button type="button" class="is-danger" data-delete="${message.id}">Löschen</button>` : ''}
+                </div>`
+              : ''
+          }
         </div>`;
 
     const picker =
@@ -954,10 +964,21 @@ function bindMessageActions() {
     });
   });
 
+  els.messageList.querySelectorAll('[data-msg-menu]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const id = btn.dataset.msgMenu;
+      state.openMsgMenu = state.openMsgMenu === id ? null : id;
+      state.openReactionFor = null;
+      renderMessages();
+    });
+  });
+
   els.messageList.querySelectorAll('[data-pin]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const message = state.messages.find((m) => m.id === btn.dataset.pin);
       if (!message) return;
+      state.openMsgMenu = null;
       try {
         const path = `/api/conversations/${state.activeConversationId}/pins/${message.id}`;
         const data = message.pinned
@@ -980,14 +1001,17 @@ function bindMessageActions() {
     btn.addEventListener('click', () => {
       const message = state.messages.find((m) => m.id === btn.dataset.reply);
       if (!message || message.deleted_at) return;
+      state.openMsgMenu = null;
       state.replyTo = message;
       updateReplyBar();
       els.messageInput.focus();
+      renderMessages();
     });
   });
 
   els.messageList.querySelectorAll('[data-react-open]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      state.openMsgMenu = null;
       state.openReactionFor =
         state.openReactionFor === btn.dataset.reactOpen ? null : btn.dataset.reactOpen;
       renderMessages();
@@ -1013,8 +1037,12 @@ function bindMessageActions() {
     btn.addEventListener('click', async () => {
       const message = state.messages.find((m) => m.id === btn.dataset.edit);
       if (!message) return;
+      state.openMsgMenu = null;
       const next = prompt('Nachricht bearbeiten', message.body);
-      if (next == null || !next.trim() || next.trim() === message.body) return;
+      if (next == null || !next.trim() || next.trim() === message.body) {
+        renderMessages();
+        return;
+      }
       try {
         const data = await api(`/api/messages/${message.id}`, {
           method: 'PATCH',
@@ -1023,6 +1051,7 @@ function bindMessageActions() {
         upsertLocalMessage(data.message);
       } catch (error) {
         showToast(error.message);
+        renderMessages();
       }
     });
   });
@@ -1030,6 +1059,7 @@ function bindMessageActions() {
   els.messageList.querySelectorAll('[data-delete]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (!confirm('Nachricht für alle löschen?')) return;
+      state.openMsgMenu = null;
       try {
         const data = await api(`/api/messages/${btn.dataset.delete}`, { method: 'DELETE' });
         upsertLocalMessage(data.message);
@@ -1366,9 +1396,22 @@ els.appMenu?.addEventListener('click', async (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && els.appMenu?.classList.contains('is-open')) {
-    closeMenu();
+  if (event.key === 'Escape') {
+    if (els.appMenu?.classList.contains('is-open')) closeMenu();
+    if (state.openMsgMenu || state.openReactionFor) {
+      state.openMsgMenu = null;
+      state.openReactionFor = null;
+      renderMessages();
+    }
   }
+});
+
+document.addEventListener('click', (event) => {
+  if (!state.openMsgMenu && !state.openReactionFor) return;
+  if (event.target.closest('.msg-toolbar, .reaction-picker')) return;
+  state.openMsgMenu = null;
+  state.openReactionFor = null;
+  renderMessages();
 });
 
 els.btnNewChat.addEventListener('click', async () => {
