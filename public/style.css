@@ -1,3 +1,46 @@
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/manrope-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/manrope-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/manrope-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./fonts/manrope-latin-800-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Syne';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/syne-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Syne';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./fonts/syne-latin-800-normal.woff2') format('woff2');
+}
+
 :root {
   --ink: #152238;
   --ink-soft: #3d4d63;
@@ -778,6 +821,30 @@ input:focus, select:focus {
 .contact-item.has-check { grid-template-columns: auto 1fr auto; }
 
 .privacy-help { margin: 0; font-size: 0.88rem; color: var(--muted); }
+.privacy-section-title {
+  margin: 8px 0 0;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+.consent-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.consent-chip {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(21, 34, 56, 0.06);
+}
+.consent-chip.is-on { background: rgba(42, 157, 143, 0.16); color: #1d6b62; }
+.consent-chip.is-off { background: rgba(155, 34, 38, 0.1); color: var(--danger); }
+.privacy-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .privacy-fields select {
   width: 100%;
   border: 1px solid var(--line);

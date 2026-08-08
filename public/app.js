@@ -74,6 +74,14 @@ const els = {
   privacyDialog: document.getElementById('privacy-dialog'),
   privacyLastSeen: document.getElementById('privacy-last-seen'),
   privacyRetention: document.getElementById('privacy-retention'),
+  privacyRestrict: document.getElementById('privacy-restrict'),
+  consentStatus: document.getElementById('consent-status'),
+  btnRevokeMessages: document.getElementById('btn-revoke-messages'),
+  btnRevokeMedia: document.getElementById('btn-revoke-media'),
+  btnRevokeImpulses: document.getElementById('btn-revoke-impulses'),
+  btnGrantMessages: document.getElementById('btn-grant-messages'),
+  btnGrantMedia: document.getElementById('btn-grant-media'),
+  btnGrantImpulses: document.getElementById('btn-grant-impulses'),
   btnExportData: document.getElementById('btn-export-data'),
   btnDeleteAccount: document.getElementById('btn-delete-account'),
   messageConsentDialog: document.getElementById('message-consent-dialog'),
@@ -152,10 +160,88 @@ function maybeShowStorageBanner() {
 }
 
 function ensureMessageConsent() {
+  if (state.user?.processing_restricted) {
+    showToast('Verarbeitung eingeschränkt (Art. 18 DSGVO)');
+    return false;
+  }
   if (state.user?.has_message_consent || state.user?.message_consent_at) return true;
   els.messageConsentCheck.checked = false;
   if (!els.messageConsentDialog.open) els.messageConsentDialog.showModal();
   return false;
+}
+
+function ensureMediaConsent() {
+  if (state.user?.processing_restricted) {
+    showToast('Verarbeitung eingeschränkt (Art. 18 DSGVO)');
+    return false;
+  }
+  if (state.user?.has_media_consent || state.user?.media_consent_at) return true;
+  showToast('Medien-Einwilligung fehlt — unter Privatsphäre erteilen');
+  return false;
+}
+
+function ensureImpulseConsent() {
+  if (state.user?.processing_restricted) {
+    showToast('Verarbeitung eingeschränkt (Art. 18 DSGVO)');
+    return false;
+  }
+  if (state.user?.has_impulse_consent || state.user?.impulse_consent_at) return true;
+  showToast('Impuls-Einwilligung fehlt — unter Privatsphäre erteilen');
+  return false;
+}
+
+function renderConsentStatus() {
+  if (!els.consentStatus) return;
+  const u = state.user || {};
+  const row = (label, ok) =>
+    `<div class="consent-chip ${ok ? 'is-on' : 'is-off'}">${label}: ${ok ? 'aktiv' : 'widerrufen'}</div>`;
+  els.consentStatus.innerHTML = [
+    row('Nachrichten', Boolean(u.has_message_consent || u.message_consent_at)),
+    row('Medien', Boolean(u.has_media_consent || u.media_consent_at)),
+    row('Impulse', Boolean(u.has_impulse_consent || u.impulse_consent_at)),
+    row('Art. 18', Boolean(u.processing_restricted)),
+  ].join('');
+}
+
+function openPrivacyDialog() {
+  els.privacyLastSeen.checked = Boolean(state.user?.show_last_seen);
+  els.privacyRetention.value = String(state.user?.message_retention_days || 365);
+  if (els.privacyRestrict) {
+    els.privacyRestrict.checked = Boolean(state.user?.processing_restricted);
+  }
+  renderConsentStatus();
+  els.privacyDialog.showModal();
+}
+
+async function revokeScope(scope) {
+  try {
+    const data = await api('/api/me/consent/revoke', {
+      method: 'POST',
+      body: { scope },
+    });
+    state.user = data.user;
+    renderConsentStatus();
+    showToast(`Einwilligung widerrufen: ${scope}`);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function grantScope(kind) {
+  try {
+    const endpoints = {
+      messages: ['/api/me/message-consent', { message_consent: true }],
+      media: ['/api/me/media-consent', { media_consent: true }],
+      impulses: ['/api/me/impulse-consent', { impulse_consent: true }],
+    };
+    const [url, body] = endpoints[kind];
+    const data = await api(url, { method: 'POST', body });
+    state.user = data.user;
+    renderConsentStatus();
+    showToast(`Einwilligung erteilt: ${kind}`);
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function formatDuration(ms = 0) {
@@ -910,6 +996,7 @@ async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' }
   const conversationId = state.activeConversationId;
   if (!conversationId || !file) return;
   if (!ensureMessageConsent()) return;
+  if (!ensureMediaConsent()) return;
 
   const formData = new FormData();
   formData.append('file', file);
@@ -935,7 +1022,8 @@ async function sendMediaFile(file, { typeHint, durationMs = null, caption = '' }
       renderConversationList();
     }
   } catch (error) {
-    if (error.message?.includes('Einwilligung')) ensureMessageConsent();
+    if (error.message?.includes('Medien')) ensureMediaConsent();
+    else if (error.message?.includes('Einwilligung')) ensureMessageConsent();
     throw error;
   }
 }
@@ -1142,6 +1230,8 @@ els.registerForm.addEventListener('submit', async (event) => {
         privacy_consent: form.get('privacy_consent') === 'on',
         age_confirmed: form.get('age_confirmed') === 'on',
         message_consent: form.get('message_consent') === 'on',
+        media_consent: form.get('media_consent') === 'on',
+        impulse_consent: form.get('impulse_consent') === 'on',
       },
     });
     await handleAuthSuccess(data);
@@ -1182,9 +1272,7 @@ els.btnNewGroup.addEventListener('click', async () => {
 });
 
 els.btnPrivacy.addEventListener('click', () => {
-  els.privacyLastSeen.checked = state.user?.show_last_seen !== false;
-  els.privacyRetention.value = String(state.user?.message_retention_days || 365);
-  els.privacyDialog.showModal();
+  openPrivacyDialog();
 });
 
 els.privacyLastSeen.addEventListener('change', async () => {
@@ -1214,6 +1302,32 @@ els.privacyRetention.addEventListener('change', async () => {
     showToast(error.message);
   }
 });
+
+els.privacyRestrict?.addEventListener('change', async () => {
+  try {
+    const data = await api('/api/me/privacy', {
+      method: 'PATCH',
+      body: { processing_restricted: els.privacyRestrict.checked },
+    });
+    state.user = data.user;
+    renderConsentStatus();
+    showToast(
+      els.privacyRestrict.checked
+        ? 'Verarbeitung eingeschränkt (Art. 18)'
+        : 'Einschränkung aufgehoben'
+    );
+  } catch (error) {
+    els.privacyRestrict.checked = !els.privacyRestrict.checked;
+    showToast(error.message);
+  }
+});
+
+els.btnRevokeMessages?.addEventListener('click', () => revokeScope('messages'));
+els.btnRevokeMedia?.addEventListener('click', () => revokeScope('media'));
+els.btnRevokeImpulses?.addEventListener('click', () => revokeScope('impulses'));
+els.btnGrantMessages?.addEventListener('click', () => grantScope('messages'));
+els.btnGrantMedia?.addEventListener('click', () => grantScope('media'));
+els.btnGrantImpulses?.addEventListener('click', () => grantScope('impulses'));
 
 els.messageConsentForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1360,6 +1474,7 @@ els.btnVoiceCancel.addEventListener('click', () => cancelVoiceRecording());
 els.btnVoiceSend.addEventListener('click', () => finishVoiceRecording(true));
 
 els.btnAddStatus.addEventListener('click', () => {
+  if (!ensureImpulseConsent()) return;
   els.statusText.value = '';
   els.statusImage.value = '';
   els.statusDialog.showModal();
@@ -1370,6 +1485,7 @@ els.btnCloseViewer.addEventListener('click', () => els.statusViewer.close());
 
 els.statusForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (!ensureImpulseConsent()) return;
   const formData = new FormData();
   const text = els.statusText.value.trim();
   const file = els.statusImage.files?.[0];
@@ -1377,6 +1493,7 @@ els.statusForm.addEventListener('submit', async (event) => {
     showToast('Text oder Bild nötig');
     return;
   }
+  if (file && !ensureMediaConsent()) return;
   if (text) formData.append('body', text);
   if (file) formData.append('file', file);
   formData.append('type', file ? 'image' : 'text');

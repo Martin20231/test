@@ -1,14 +1,13 @@
 # Relay — Messenger
 
-Echtzeit-Messenger (WhatsApp-ähnlich) mit Node.js, Express, Socket.io und SQLite.
+Echtzeit-Messenger mit Node.js, Express, Socket.io und SQLite. UI bewusst anders als WhatsApp (Kreise, Impulse, Umfragen).
 
 ## Features
 
-- Registrieren / Anmelden
-- 1:1-Chats in Echtzeit
-- Online-Status & Tippanzeige
-- Lesebestätigungen
-- Responsive Layout (Desktop + Handy)
+- Registrieren / Anmelden, 1:1 und Gruppen („Kreise“)
+- Echtzeit, Tippen, Lesebestätigungen, Reaktionen, Bearbeiten/Löschen
+- Fotos, Sprachnotizen, Impulse (24h), Umfragen, Anheften
+- DSGVO-Funktionen (siehe unten)
 
 ## Schnellstart
 
@@ -28,15 +27,18 @@ npm start
 | clara    | demo     |
 | david    | demo     |
 
-Tipp: Zwei Browserfenster (oder ein normales + ein Inkognito-Fenster) öffnen und live schreiben.
+## Datenschutz / deutsches Recht
 
-## Datenschutz (DSGVO)
+- Datenschutzerklärung: `/datenschutz.html` (Version 2026-08-08.3)
+- Impressum (§&nbsp;5 DDG): `/impressum.html` — Platzhalter via `IMPRESSUM_*` Env
+- Granulare Einwilligungen: Policy, Nachrichten, Medien, Impulse (Widerruf Art.&nbsp;7 Abs.&nbsp;3)
+- Art.&nbsp;15/20 Export, Art.&nbsp;17 Kontolöschung, Art.&nbsp;18 Verarbeitungseinschränkung
+- Privacy by Default: „Zuletzt online“ aus; Aufbewahrung 30/90/180/365 Tage
+- Verschlüsselung at rest (AES-256-GCM), Session-Timeout 30 Tage, Orphan-Upload-Cleanup
+- Lokale Fonts (kein Google Fonts CDN)
+- Schlüssel: `RELAY_ENCRYPTION_KEY` setzen (Produktion)
 
-- Datenschutzerklärung: `/datenschutz.html`
-- Einwilligung + Altersbestätigung (16+) bei Registrierung
-- Datenexport und Kontolöschung unter Privatsphäre
-- „Zuletzt online“ optional ausblendbar
-- Keine Tracking-Cookies; nur technisch notwendiges Session-Token
+**Hinweis:** Keine E2E-Verschlüsselung. Für Produktivbetrieb Impressum-Daten und Hosting (idealerweise EU) konkretisieren.
 
 ## Deploy (z. B. Render)
 

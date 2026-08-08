@@ -3,6 +3,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { decryptText, encryptText } from '../services/crypto.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dirname, '..', 'data', 'relay.db');
@@ -33,9 +34,14 @@ export function initDatabase() {
       avatar_color          TEXT NOT NULL,
       status                TEXT NOT NULL DEFAULT '',
       last_seen_at          TEXT,
-      show_last_seen        INTEGER NOT NULL DEFAULT 1,
+      show_last_seen        INTEGER NOT NULL DEFAULT 0,
       privacy_consent_at    TEXT,
       privacy_consent_version TEXT,
+      message_consent_at    TEXT,
+      media_consent_at      TEXT,
+      impulse_consent_at    TEXT,
+      message_retention_days INTEGER NOT NULL DEFAULT 365,
+      processing_restricted INTEGER NOT NULL DEFAULT 0,
       created_at            TEXT NOT NULL
     );
 
@@ -46,6 +52,7 @@ export function initDatabase() {
       scope       TEXT NOT NULL DEFAULT 'policy',
       legal_basis TEXT,
       accepted_at TEXT NOT NULL,
+      revoked_at  TEXT,
       ip_hash     TEXT,
       user_agent  TEXT
     );
@@ -53,7 +60,8 @@ export function initDatabase() {
     CREATE TABLE IF NOT EXISTS sessions (
       token      TEXT PRIMARY KEY,
       user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS conversations (
@@ -164,7 +172,7 @@ function migrateSchema(database) {
     database.exec('ALTER TABLE users ADD COLUMN last_seen_at TEXT');
   }
   if (!userCols.includes('show_last_seen')) {
-    database.exec('ALTER TABLE users ADD COLUMN show_last_seen INTEGER NOT NULL DEFAULT 1');
+    database.exec('ALTER TABLE users ADD COLUMN show_last_seen INTEGER NOT NULL DEFAULT 0');
   }
   if (!userCols.includes('privacy_consent_at')) {
     database.exec('ALTER TABLE users ADD COLUMN privacy_consent_at TEXT');
@@ -175,8 +183,17 @@ function migrateSchema(database) {
   if (!userCols.includes('message_consent_at')) {
     database.exec('ALTER TABLE users ADD COLUMN message_consent_at TEXT');
   }
+  if (!userCols.includes('media_consent_at')) {
+    database.exec('ALTER TABLE users ADD COLUMN media_consent_at TEXT');
+  }
+  if (!userCols.includes('impulse_consent_at')) {
+    database.exec('ALTER TABLE users ADD COLUMN impulse_consent_at TEXT');
+  }
   if (!userCols.includes('message_retention_days')) {
     database.exec('ALTER TABLE users ADD COLUMN message_retention_days INTEGER NOT NULL DEFAULT 365');
+  }
+  if (!userCols.includes('processing_restricted')) {
+    database.exec('ALTER TABLE users ADD COLUMN processing_restricted INTEGER NOT NULL DEFAULT 0');
   }
 
   const consentCols = tableColumns(database, 'privacy_consents');
@@ -185,6 +202,21 @@ function migrateSchema(database) {
   }
   if (!consentCols.includes('legal_basis')) {
     database.exec('ALTER TABLE privacy_consents ADD COLUMN legal_basis TEXT');
+  }
+  if (!consentCols.includes('revoked_at')) {
+    database.exec('ALTER TABLE privacy_consents ADD COLUMN revoked_at TEXT');
+  }
+
+  const sessionCols = tableColumns(database, 'sessions');
+  if (!sessionCols.includes('expires_at')) {
+    database.exec('ALTER TABLE sessions ADD COLUMN expires_at TEXT');
+    database
+      .prepare(
+        `UPDATE sessions
+         SET expires_at = datetime(created_at, '+30 days')
+         WHERE expires_at IS NULL OR expires_at = ''`
+      )
+      .run();
   }
 
   const convCols = tableColumns(database, 'conversations');
@@ -250,9 +282,13 @@ const AVATAR_COLORS = [
   '#386641',
 ];
 
-const PRIVACY_POLICY_VERSION = '2026-08-08.2';
+const PRIVACY_POLICY_VERSION = '2026-08-08.3';
 const DEFAULT_MESSAGE_RETENTION_DAYS = 365;
+const SESSION_DAYS = 30;
 const ALLOWED_RETENTION_DAYS = new Set([30, 90, 180, 365]);
+const CONSENT_SCOPES = new Set(['policy', 'messages', 'media', 'impulses']);
+const ALLOWED_REACTIONS = new Set(['👍', '❤️', '😂', '😮', '😢', '🔥', '👏']);
+const REVOCABLE_SCOPES = new Set(['messages', 'media', 'impulses', 'all']);
 
 export function getPrivacyPolicyVersion() {
   return PRIVACY_POLICY_VERSION;
@@ -265,11 +301,14 @@ export function getMessagePrivacyInfo() {
     purpose:
       'Übermittlung und berechtigtes Speichern von Chat-Nachrichten zur Bereitstellung des Messengers',
     storage_limitation: 'Art. 5 Abs. 1 lit. e DSGVO',
+    integrity_confidentiality: 'Art. 32 DSGVO (Passwort-Hashing, Session-Timeout, Verschlüsselung at rest)',
     default_retention_days: DEFAULT_MESSAGE_RETENTION_DAYS,
     allowed_retention_days: [...ALLOWED_RETENTION_DAYS],
     e2e_encryption: false,
+    encryption_at_rest: true,
+    privacy_by_default: true,
     note:
-      'Nachrichteninhalte werden serverseitig verarbeitet. Eine Ende-zu-Ende-Verschlüsselung ist derzeit nicht aktiv.',
+      'Nachrichteninhalte werden serverseitig verschlüsselt gespeichert (at rest). Eine Ende-zu-Ende-Verschlüsselung ist noch nicht aktiv.',
   };
 }
 
@@ -317,6 +356,8 @@ export function createUser({
   password,
   privacyConsent,
   messageConsent,
+  mediaConsent,
+  impulseConsent,
   ageConfirmed,
   requestMeta = {},
 }) {
@@ -351,6 +392,17 @@ export function createUser({
       { status: 400 }
     );
   }
+  if (!mediaConsent) {
+    throw Object.assign(
+      new Error('Bitte der Verarbeitung von Medien (Bilder/Sprachnotizen) zustimmen.'),
+      { status: 400 }
+    );
+  }
+  if (!impulseConsent) {
+    throw Object.assign(new Error('Bitte der Verarbeitung von Impulsen zustimmen.'), {
+      status: 400,
+    });
+  }
 
   const existing = getDb().prepare('SELECT id FROM users WHERE username = ?').get(cleanUser);
   if (existing) {
@@ -366,11 +418,14 @@ export function createUser({
     avatar_color: pickAvatarColor(cleanUser),
     status: '',
     last_seen_at: null,
-    show_last_seen: 1,
+    show_last_seen: 0,
     privacy_consent_at: consentAt,
     privacy_consent_version: PRIVACY_POLICY_VERSION,
     message_consent_at: consentAt,
+    media_consent_at: consentAt,
+    impulse_consent_at: consentAt,
     message_retention_days: DEFAULT_MESSAGE_RETENTION_DAYS,
+    processing_restricted: 0,
     created_at: consentAt,
   };
 
@@ -380,11 +435,13 @@ export function createUser({
         `INSERT INTO users (
            id, username, display_name, password_hash, password_salt, avatar_color, status,
            last_seen_at, show_last_seen, privacy_consent_at, privacy_consent_version,
-           message_consent_at, message_retention_days, created_at
+           message_consent_at, media_consent_at, impulse_consent_at, message_retention_days,
+           processing_restricted, created_at
          ) VALUES (
            @id, @username, @display_name, @password_hash, @password_salt, @avatar_color, @status,
            @last_seen_at, @show_last_seen, @privacy_consent_at, @privacy_consent_version,
-           @message_consent_at, @message_retention_days, @created_at
+           @message_consent_at, @media_consent_at, @impulse_consent_at, @message_retention_days,
+           @processing_restricted, @created_at
          )`
       )
       .run({
@@ -401,6 +458,8 @@ export function createUser({
       consentAt,
       requestMeta
     );
+    insertConsent(user.id, 'media', 'Art. 6 Abs. 1 lit. a DSGVO', consentAt, requestMeta);
+    insertConsent(user.id, 'impulses', 'Art. 6 Abs. 1 lit. a DSGVO', consentAt, requestMeta);
   });
   tx();
 
@@ -410,8 +469,8 @@ export function createUser({
 function insertConsent(userId, scope, legalBasis, acceptedAt, requestMeta = {}) {
   getDb()
     .prepare(
-      `INSERT INTO privacy_consents (id, user_id, version, scope, legal_basis, accepted_at, ip_hash, user_agent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO privacy_consents (id, user_id, version, scope, legal_basis, accepted_at, revoked_at, ip_hash, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`
     )
     .run(
       newId('pc_'),
@@ -439,9 +498,11 @@ export function authenticateUser(username, password) {
 
 export function createSession(userId) {
   const token = randomBytes(32).toString('hex');
+  const createdAt = nowIso();
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
   getDb()
-    .prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)')
-    .run(token, userId, nowIso());
+    .prepare('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run(token, userId, createdAt, expiresAt);
   return token;
 }
 
@@ -449,13 +510,18 @@ export function getUserByToken(token) {
   if (!token) return null;
   const row = getDb()
     .prepare(
-      `SELECT u.*
+      `SELECT u.*, s.expires_at AS session_expires_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ?`
     )
     .get(token);
-  return row ? publicUser(row, { includePrivate: true }) : null;
+  if (!row) return null;
+  if (row.session_expires_at && row.session_expires_at < nowIso()) {
+    getDb().prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    return null;
+  }
+  return publicUser(row, { includePrivate: true });
 }
 
 export function deleteSession(token) {
@@ -485,7 +551,10 @@ export function updateStatus(userId, status) {
   return getUserById(userId, { includePrivate: true });
 }
 
-export function updatePrivacySettings(userId, { showLastSeen, messageRetentionDays } = {}) {
+export function updatePrivacySettings(
+  userId,
+  { showLastSeen, messageRetentionDays, processingRestricted } = {}
+) {
   if (typeof showLastSeen === 'boolean') {
     getDb()
       .prepare('UPDATE users SET show_last_seen = ? WHERE id = ?')
@@ -503,6 +572,12 @@ export function updatePrivacySettings(userId, { showLastSeen, messageRetentionDa
     getDb().prepare('UPDATE users SET message_retention_days = ? WHERE id = ?').run(days, userId);
   }
 
+  if (typeof processingRestricted === 'boolean') {
+    getDb()
+      .prepare('UPDATE users SET processing_restricted = ? WHERE id = ?')
+      .run(processingRestricted ? 1 : 0, userId);
+  }
+
   return getUserById(userId, { includePrivate: true });
 }
 
@@ -515,6 +590,9 @@ export function touchLastSeen(userId) {
 export function findOrCreateDirectConversation(userA, userB) {
   if (userA === userB) {
     throw Object.assign(new Error('Du kannst keinen Chat mit dir selbst starten.'), { status: 400 });
+  }
+  if (!getUserById(userB)) {
+    throw Object.assign(new Error('Kontakt nicht gefunden.'), { status: 404 });
   }
 
   const existing = getDb()
@@ -677,6 +755,7 @@ export function getConversationForUser(conversationId, userId) {
 
 function formatMessagePreview(row) {
   if (!row) return null;
+  const plain = decryptText(row.body || '');
   if (row.deleted_at) {
     return {
       ...row,
@@ -684,15 +763,15 @@ function formatMessagePreview(row) {
     };
   }
   if (row.type === 'image') {
-    return { ...row, body: row.body ? `Bild: ${row.body}` : 'Bild' };
+    return { ...row, body: plain ? `Bild: ${plain}` : 'Bild' };
   }
   if (row.type === 'audio') {
     return { ...row, body: 'Sprachnotiz' };
   }
   if (row.type === 'poll') {
-    return { ...row, body: `Umfrage: ${row.body}` };
+    return { ...row, body: `Umfrage: ${plain}` };
   }
-  return row;
+  return { ...row, body: plain };
 }
 
 function getReactionsMap(messageIds) {
@@ -727,21 +806,23 @@ function hydrateMessage(row, reactionsMap, usersById) {
   const deleted = Boolean(row.deleted_at);
   let replyBody = '';
   if (reply) {
+    const replyPlain = decryptText(reply.body || '');
     if (reply.deleted_at) replyBody = 'Nachricht gelöscht';
-    else if (reply.type === 'image') replyBody = reply.body || 'Bild';
+    else if (reply.type === 'image') replyBody = replyPlain || 'Bild';
     else if (reply.type === 'audio') replyBody = 'Sprachnotiz';
-    else if (reply.type === 'poll') replyBody = `Umfrage: ${reply.body}`;
-    else replyBody = reply.body;
+    else if (reply.type === 'poll') replyBody = `Umfrage: ${replyPlain}`;
+    else replyBody = replyPlain;
   }
 
   const poll = !deleted && row.type === 'poll' ? getPollForMessage(row.id, null) : null;
+  const plainBody = deleted ? '' : decryptText(row.body || '');
 
   return {
     id: row.id,
     conversation_id: row.conversation_id,
     sender_id: row.sender_id,
     sender_name: usersById.get(row.sender_id)?.display_name || null,
-    body: deleted ? '' : row.body,
+    body: plainBody,
     type: row.type || 'text',
     media_url: deleted ? null : row.media_url || null,
     media_duration_ms: row.media_duration_ms || null,
@@ -840,6 +921,12 @@ export function createMessage(
   if (!sender) {
     throw Object.assign(new Error('Benutzer nicht gefunden.'), { status: 404 });
   }
+  if (sender.processing_restricted) {
+    throw Object.assign(
+      new Error('Verarbeitung eingeschränkt (Art. 18 DSGVO). Neue Nachrichten sind pausiert.'),
+      { status: 403, code: 'PROCESSING_RESTRICTED' }
+    );
+  }
   if (!sender.message_consent_at) {
     throw Object.assign(
       new Error(
@@ -850,6 +937,12 @@ export function createMessage(
   }
 
   const msgType = ['text', 'image', 'audio', 'poll'].includes(type) ? type : 'text';
+  if ((msgType === 'image' || msgType === 'audio') && !sender.media_consent_at) {
+    throw Object.assign(
+      new Error('Ohne Medien-Einwilligung können keine Bilder/Sprachnotizen gesendet werden.'),
+      { status: 403, code: 'MEDIA_CONSENT_REQUIRED' }
+    );
+  }
   const clean = String(body || '').trim();
 
   if ((msgType === 'text' || msgType === 'poll') && !clean) {
@@ -886,7 +979,7 @@ export function createMessage(
     id: newId('m_'),
     conversation_id: conversationId,
     sender_id: senderId,
-    body: clean,
+    body: encryptText(clean),
     type: msgType,
     media_url: mediaUrl,
     media_duration_ms: mediaDurationMs,
@@ -930,7 +1023,7 @@ export function editMessage(messageId, userId, body) {
 
   getDb()
     .prepare('UPDATE messages SET body = ?, edited_at = ? WHERE id = ?')
-    .run(clean, nowIso(), messageId);
+    .run(encryptText(clean), nowIso(), messageId);
 
   return getMessageById(messageId);
 }
@@ -1042,7 +1135,27 @@ export function getConversationMemberIds(conversationId) {
 }
 
 export function createStatus(userId, { type = 'text', body = '', mediaUrl = null } = {}) {
+  const user = getDb().prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) {
+    throw Object.assign(new Error('Benutzer nicht gefunden.'), { status: 404 });
+  }
+  if (user.processing_restricted) {
+    throw Object.assign(new Error('Verarbeitung eingeschränkt (Art. 18 DSGVO).'), { status: 403 });
+  }
+  if (!user.impulse_consent_at) {
+    throw Object.assign(new Error('Ohne Impuls-Einwilligung keine Status-Posts.'), {
+      status: 403,
+      code: 'IMPULSE_CONSENT_REQUIRED',
+    });
+  }
+
   const statusType = ['text', 'image'].includes(type) ? type : 'text';
+  if (statusType === 'image' && !user.media_consent_at) {
+    throw Object.assign(new Error('Ohne Medien-Einwilligung keine Impuls-Bilder.'), {
+      status: 403,
+      code: 'MEDIA_CONSENT_REQUIRED',
+    });
+  }
   const clean = String(body || '').trim();
 
   if (statusType === 'text' && !clean) {
@@ -1064,7 +1177,7 @@ export function createStatus(userId, { type = 'text', body = '', mediaUrl = null
       `INSERT INTO statuses (id, user_id, type, body, media_url, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(id, userId, statusType, clean, mediaUrl, createdAt, expiresAt);
+    .run(id, userId, statusType, encryptText(clean), mediaUrl, createdAt, expiresAt);
 
   return getStatusById(id, userId);
 }
@@ -1098,7 +1211,7 @@ function hydrateStatus(row, viewerId) {
     id: row.id,
     user_id: row.user_id,
     type: row.type,
-    body: row.body,
+    body: decryptText(row.body || ''),
     media_url: row.media_url,
     created_at: row.created_at,
     expires_at: row.expires_at,
@@ -1347,7 +1460,7 @@ export function exportUserData(userId) {
 
   const consents = getDb()
     .prepare(
-      `SELECT id, version, scope, legal_basis, accepted_at, ip_hash, user_agent
+      `SELECT id, version, scope, legal_basis, accepted_at, revoked_at, ip_hash, user_agent
        FROM privacy_consents WHERE user_id = ? ORDER BY accepted_at DESC`
     )
     .all(userId);
@@ -1372,7 +1485,11 @@ export function exportUserData(userId) {
        WHERE sender_id = ?
        ORDER BY created_at ASC`
     )
-    .all(userId);
+    .all(userId)
+    .map((row) => ({
+      ...row,
+      body: row.deleted_at ? '' : decryptText(row.body || ''),
+    }));
 
   const reactions = getDb()
     .prepare(
@@ -1388,11 +1505,16 @@ export function exportUserData(userId) {
        FROM statuses WHERE user_id = ?
        ORDER BY created_at DESC`
     )
-    .all(userId);
+    .all(userId)
+    .map((row) => ({
+      ...row,
+      body: decryptText(row.body || ''),
+    }));
 
   return {
     exported_at: nowIso(),
     privacy_policy_version: PRIVACY_POLICY_VERSION,
+    legal_basis: 'Art. 15 und Art. 20 DSGVO',
     message_privacy: getMessagePrivacyInfo(),
     user: publicUser(user, { includePrivate: true }),
     consents,
@@ -1401,7 +1523,7 @@ export function exportUserData(userId) {
     reactions,
     statuses,
     note:
-      'Dies ist deine Datenkopie nach Art. 15/20 DSGVO. Passwort-Hashes sind nicht enthalten. Nachrichten werden auf Basis von Art. 6 Abs. 1 lit. a und lit. b DSGVO verarbeitet.',
+      'Dies ist deine Datenkopie nach Art. 15/20 DSGVO. Passwort-Hashes sind nicht enthalten. Nachrichteninhalte werden serverseitig entschlüsselt ausgegeben. Keine E2E-Verschlüsselung.',
   };
 }
 
@@ -1512,6 +1634,97 @@ export function recordMessageConsent(userId, requestMeta = {}) {
   return getUserById(userId, { includePrivate: true });
 }
 
+export function recordMediaConsent(userId, requestMeta = {}) {
+  const stamp = nowIso();
+  getDb()
+    .prepare('UPDATE users SET media_consent_at = ?, privacy_consent_version = ? WHERE id = ?')
+    .run(stamp, PRIVACY_POLICY_VERSION, userId);
+  insertConsent(userId, 'media', 'Art. 6 Abs. 1 lit. a DSGVO', stamp, requestMeta);
+  return getUserById(userId, { includePrivate: true });
+}
+
+export function recordImpulseConsent(userId, requestMeta = {}) {
+  const stamp = nowIso();
+  getDb()
+    .prepare('UPDATE users SET impulse_consent_at = ?, privacy_consent_version = ? WHERE id = ?')
+    .run(stamp, PRIVACY_POLICY_VERSION, userId);
+  insertConsent(userId, 'impulses', 'Art. 6 Abs. 1 lit. a DSGVO', stamp, requestMeta);
+  return getUserById(userId, { includePrivate: true });
+}
+
+export function revokeConsent(userId, scope, requestMeta = {}) {
+  const cleanScope = String(scope || '').trim().toLowerCase();
+  if (!REVOCABLE_SCOPES.has(cleanScope)) {
+    throw Object.assign(
+      new Error('Ungültiger Widerrufs-Scope (messages, media, impulses oder all).'),
+      { status: 400 }
+    );
+  }
+
+  const stamp = nowIso();
+  const tx = getDb().transaction(() => {
+    if (cleanScope === 'messages' || cleanScope === 'all') {
+      getDb().prepare('UPDATE users SET message_consent_at = NULL WHERE id = ?').run(userId);
+      getDb()
+        .prepare(
+          `UPDATE privacy_consents SET revoked_at = ?
+           WHERE user_id = ? AND scope = 'messages' AND revoked_at IS NULL`
+        )
+        .run(stamp, userId);
+    }
+    if (cleanScope === 'media' || cleanScope === 'all') {
+      getDb().prepare('UPDATE users SET media_consent_at = NULL WHERE id = ?').run(userId);
+      getDb()
+        .prepare(
+          `UPDATE privacy_consents SET revoked_at = ?
+           WHERE user_id = ? AND scope = 'media' AND revoked_at IS NULL`
+        )
+        .run(stamp, userId);
+    }
+    if (cleanScope === 'impulses' || cleanScope === 'all') {
+      getDb().prepare('UPDATE users SET impulse_consent_at = NULL WHERE id = ?').run(userId);
+      getDb()
+        .prepare(
+          `UPDATE privacy_consents SET revoked_at = ?
+           WHERE user_id = ? AND scope = 'impulses' AND revoked_at IS NULL`
+        )
+        .run(stamp, userId);
+    }
+
+    insertConsent(
+      userId,
+      `revoke_${cleanScope}`,
+      'Art. 7 Abs. 3 DSGVO',
+      stamp,
+      requestMeta
+    );
+  });
+  tx();
+
+  return getUserById(userId, { includePrivate: true });
+}
+
+export function cleanupExpiredSessions() {
+  return getDb()
+    .prepare(
+      `DELETE FROM sessions
+       WHERE expires_at IS NOT NULL AND expires_at != '' AND expires_at < ?`
+    )
+    .run(nowIso()).changes;
+}
+
+export function listReferencedUploadUrls() {
+  const fromMessages = getDb()
+    .prepare('SELECT media_url AS url FROM messages WHERE media_url IS NOT NULL')
+    .all()
+    .map((row) => row.url);
+  const fromStatuses = getDb()
+    .prepare('SELECT media_url AS url FROM statuses WHERE media_url IS NOT NULL')
+    .all()
+    .map((row) => row.url);
+  return new Set([...fromMessages, ...fromStatuses].filter(Boolean));
+}
+
 export function purgeExpiredMessagesByRetention() {
   const users = getDb()
     .prepare('SELECT id, message_retention_days FROM users')
@@ -1551,7 +1764,7 @@ export function purgeExpiredMessagesByRetention() {
 }
 
 function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
-  const showLastSeen = row.show_last_seen == null ? true : Boolean(row.show_last_seen);
+  const showLastSeen = Boolean(row.show_last_seen);
   const base = {
     id: row.id,
     username: row.username,
@@ -1577,11 +1790,17 @@ function publicUser(row, { includePrivate = false, forPeer = false } = {}) {
       privacy_consent_at: row.privacy_consent_at || null,
       privacy_consent_version: row.privacy_consent_version || null,
       message_consent_at: row.message_consent_at || null,
+      media_consent_at: row.media_consent_at || null,
+      impulse_consent_at: row.impulse_consent_at || null,
       message_retention_days:
         row.message_retention_days == null
           ? DEFAULT_MESSAGE_RETENTION_DAYS
           : Number(row.message_retention_days),
+      processing_restricted: Boolean(row.processing_restricted),
       has_message_consent: Boolean(row.message_consent_at),
+      has_media_consent: Boolean(row.media_consent_at),
+      has_impulse_consent: Boolean(row.impulse_consent_at),
+      session_ttl_days: SESSION_DAYS,
     };
   }
 

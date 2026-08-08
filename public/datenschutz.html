@@ -5,39 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
     <title>Datenschutzerklärung — Relay</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./style.css" />
     <style>
-      :root {
-        --brand: #064e4a;
-        --ink: #12201e;
-        --muted: #3d524e;
-        --bg: #dceee8;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        font-family: Figtree, sans-serif;
-        color: var(--ink);
-        background: linear-gradient(160deg, #b9ddd3, var(--bg) 45%, #e7f3ee);
-        line-height: 1.55;
-      }
-      main {
+      body { overflow: auto; min-height: 100vh; }
+      main.legal-page {
         width: min(760px, calc(100% - 32px));
         margin: 28px auto 48px;
-        background: rgba(247, 251, 249, 0.94);
+        background: rgba(247, 249, 252, 0.94);
         border-radius: 24px;
         padding: 28px 24px;
-        box-shadow: 0 18px 50px rgba(4, 56, 52, 0.12);
+        box-shadow: var(--shadow);
       }
-      h1, h2, h3 { font-family: Syne, sans-serif; color: var(--brand); letter-spacing: -0.03em; }
+      h1, h2, h3 {
+        font-family: var(--font-display);
+        color: var(--ink);
+        letter-spacing: -0.03em;
+      }
       h1 { margin: 0 0 8px; font-size: 2rem; }
       h2 { margin: 24px 0 8px; font-size: 1.2rem; }
       h3 { margin: 16px 0 6px; font-size: 1.05rem; }
-      p, li { color: var(--muted); }
-      .meta { font-size: 0.9rem; margin-bottom: 18px; }
-      a { color: var(--brand); }
+      p, li { color: var(--ink-soft); line-height: 1.55; }
+      .meta { font-size: 0.9rem; margin-bottom: 18px; color: var(--muted); }
+      a { color: var(--accent); }
       .back {
         display: inline-block;
         margin-bottom: 16px;
@@ -48,133 +37,139 @@
         margin-top: 16px;
         padding: 12px 14px;
         border-radius: 12px;
-        background: rgba(6, 78, 74, 0.08);
+        background: rgba(21, 34, 56, 0.06);
         font-size: 0.9rem;
       }
-      .emphasis {
-        border-left: 4px solid var(--brand);
-      }
+      .emphasis { border-left: 4px solid var(--accent); }
     </style>
   </head>
   <body>
-    <main>
+    <main class="legal-page">
       <a class="back" href="/">← Zurück zu Relay</a>
       <h1>Datenschutzerklärung</h1>
-      <p class="meta">Stand / Version: <strong>2026-08-08.2</strong> · Messenger „Relay“</p>
+      <p class="meta">Stand / Version: <strong>2026-08-08.3</strong> · Messenger „Relay“ · <a href="/impressum.html">Impressum</a></p>
 
       <h2>1. Verantwortlicher</h2>
       <p>
-        Relay ist eine Demo-/Testanwendung. Verantwortlicher für die Datenverarbeitung ist die Person,
-        die diese Instanz betreibt (Selbst-Hosting). Bei Fragen zum Datenschutz wende dich an den Betreiber dieser Installation.
+        Relay ist eine Demo-/Self-Hosting-Anwendung. Verantwortlicher im Sinne der DSGVO ist die Person bzw. Stelle,
+        die diese Instanz betreibt. Kontaktdaten siehe <a href="/impressum.html">Impressum</a>
+        (Angaben gemäß §&nbsp;5 DDG).
       </p>
 
       <h2>2. Welche Daten wir verarbeiten</h2>
       <ul>
-        <li>Kontodaten: Benutzername, Anzeigename, Passwort-Hash</li>
-        <li><strong>Chat-Nachrichten</strong> (Text, Antworten, Reaktionen), inkl. Metadaten (Zeit, Zustellung/Gelesen)</li>
-        <li>Medien in Chats: Fotos und Sprachnachrichten</li>
-        <li>Status-Beiträge (max. 24 Stunden)</li>
-        <li>Technische Daten: Session-Token, optional „Zuletzt online“, Einwilligungsnachweise (Zeitpunkt, Scope, Rechtsgrundlage, gehashte IP, User-Agent)</li>
+        <li>Kontodaten: Benutzername, Anzeigename, Passwort-Hash (scrypt), Avatar-Farbe, optional Status-Text</li>
+        <li><strong>Chat-Nachrichten</strong> (Text, Antworten, Reaktionen, Umfragen), Metadaten (Zeit, Zustellung/Gelesen)</li>
+        <li>Medien: Fotos und Sprachnotizen in Chats sowie ggf. Impuls-Bilder</li>
+        <li>Impulse (Status-Beiträge, max. 24 Stunden)</li>
+        <li>Technische Daten: Session-Token (30 Tage), optional „Zuletzt online“, Einwilligungsnachweise (Zeitpunkt, Scope, Rechtsgrundlage, gehashte IP, User-Agent)</li>
       </ul>
 
-      <h2 id="nachrichten">3. Nachrichten im Besonderen (Kern der Verarbeitung)</h2>
+      <h2 id="nachrichten">3. Nachrichten im Besonderen</h2>
       <div class="emphasis">
-        Nachrichteninhalte sind personenbezogene Daten. Ohne serverseitige Verarbeitung kann der Messenger
-        nicht funktionieren. Es gibt derzeit <strong>keine Ende-zu-Ende-Verschlüsselung</strong>; Inhalte liegen
-        technisch auf dem Server vor.
+        Nachrichteninhalte sind personenbezogene Daten. Ohne serverseitige Verarbeitung kann der Messenger nicht
+        funktionieren. Es gibt <strong>keine Ende-zu-Ende-Verschlüsselung</strong>; Inhalte liegen technisch auf dem
+        Server vor und werden <strong>at rest</strong> (AES-256-GCM) verschlüsselt gespeichert.
       </div>
 
       <h3>3.1 Zwecke</h3>
       <ul>
         <li>Zustellung von Nachrichten an Chat-Teilnehmer</li>
         <li>Anzeige des Chatverlaufs für die Beteiligten</li>
-        <li>Bereitstellung von Medien, Antworten, Reaktionen, Lesebestätigungen</li>
+        <li>Medien, Antworten, Reaktionen, Umfragen, Anheften, Lesebestätigungen</li>
       </ul>
 
       <h3>3.2 Rechtsgrundlagen</h3>
       <ul>
-        <li>
-          <strong>Art. 6 Abs. 1 lit. b DSGVO</strong> — Verarbeitung zur Erfüllung des Nutzungsvertrags /
-          der angeforderten Messenger-Funktion (Übermittlung und notwendige Zwischenspeicherung).
-        </li>
-        <li>
-          <strong>Art. 6 Abs. 1 lit. a DSGVO</strong> — zusätzliche ausdrückliche Einwilligung zur
-          serverseitigen Speicherung von Nachrichteninhalten, weil keine E2E-Verschlüsselung besteht
-          und die Speicherung über die reine Moment-Übermittlung hinausgeht.
-        </li>
-        <li>
-          <strong>Art. 5 Abs. 1 lit. c und lit. e DSGVO</strong> — Datenminimierung und Speicherbegrenzung
-          durch wählbare Aufbewahrungsfristen (30/90/180/365 Tage) und Löschrechte.
-        </li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO</strong> — Erfüllung des Nutzungsvertrags / Messenger-Funktion</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO</strong> — ausdrückliche Einwilligung zur Speicherung (keine E2E)</li>
+        <li><strong>Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;c und lit.&nbsp;e DSGVO</strong> — Datenminimierung und Speicherbegrenzung (30/90/180/365 Tage)</li>
+        <li><strong>Art.&nbsp;32 DSGVO</strong> — Sicherheit (Hashing, Session-Timeout, Verschlüsselung at rest, Security-Header)</li>
       </ul>
 
-      <h3>3.3 Empfänger von Nachrichten</h3>
-      <p>
-        Nachrichten werden nur den Mitgliedern des jeweiligen Chats / der Gruppe bereitgestellt.
-        Der Betreiber der Instanz kann technisch auf Serverdaten zugreifen (Admin-Zugriff).
-        Es erfolgt kein Verkauf und kein Tracking zu Werbezwecken.
-      </p>
-
-      <h3>3.4 Speicherdauer von Nachrichten</h3>
+      <h3>3.3 Einwilligungen (granular)</h3>
       <ul>
-        <li>Standard: 365 Tage ab Erstellung, danach automatische Löschung (Soft-Delete inkl. Medienentfernung)</li>
-        <li>Individuell kürzbar in den Privatsphäre-Einstellungen (30/90/180/365 Tage)</li>
-        <li>Sofortige Löschung einzelner eigener Nachrichten jederzeit möglich</li>
-        <li>Bei Kontolöschung: Entfernung eigener Inhalte / Mitgliedschaften</li>
+        <li><strong>policy</strong> — Datenschutzerklärung</li>
+        <li><strong>messages</strong> — Chat-Nachrichten</li>
+        <li><strong>media</strong> — Bilder und Sprachnotizen</li>
+        <li><strong>impulses</strong> — 24h-Impulse</li>
       </ul>
-
-      <h3>3.5 Widerruf</h3>
       <p>
-        Die Einwilligung zur Nachrichtenverarbeitung kannst du mit Wirkung für die Zukunft widerrufen,
-        indem du das Konto löschst bzw. den Dienst nicht weiter nutzt. Bereits rechtmäßig verarbeitete
-        Nachrichten bis zum Widerruf bleiben davon unberührt, soweit keine Löschung verlangt wird
-        (Art. 7 Abs. 3 DSGVO).
+        Einwilligungen kannst du unter „Privatsphäre“ mit Wirkung für die Zukunft widerrufen
+        (<strong>Art.&nbsp;7 Abs.&nbsp;3 DSGVO</strong>). Bereits rechtmäßig verarbeitete Daten bleiben unberührt,
+        soweit keine Löschung verlangt wird.
       </p>
+
+      <h3>3.4 Empfänger</h3>
+      <p>
+        Nachrichten nur an Mitglieder des jeweiligen Chats/Kreises. Der Instanz-Betreiber kann technisch auf
+        Serverdaten zugreifen. Kein Verkauf, kein Tracking zu Werbezwecken. Keine Weitergabe an Drittland-Dienste
+        für Fonts/Analytics (lokale Schriften).
+      </p>
+
+      <h3>3.5 Speicherdauer Nachrichten</h3>
+      <ul>
+        <li>Standard: 365 Tage, danach automatische Bereinigung inkl. Medienentfernung</li>
+        <li>Individuell kürzbar: 30/90/180/365 Tage</li>
+        <li>Sofortige Löschung einzelner eigener Nachrichten möglich</li>
+        <li>Kontolöschung: Entfernung eigener Inhalte / Mitgliedschaften (Art.&nbsp;17 DSGVO)</li>
+      </ul>
 
       <h2>4. Weitere Rechtsgrundlagen</h2>
       <ul>
-        <li><strong>Art. 6 Abs. 1 lit. b DSGVO</strong> — Konto, Login, Chat-Funktionen</li>
-        <li><strong>Art. 6 Abs. 1 lit. a DSGVO</strong> — Einwilligungen (Datenschutz, Nachrichten, optionale Gerätefunktionen wie Mikrofon)</li>
-        <li><strong>Art. 6 Abs. 1 lit. f DSGVO</strong> — berechtigtes Interesse an sicherem Betrieb (Sessions, Security-Header)</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b</strong> — Konto, Login, Chat-Funktionen</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a</strong> — Einwilligungen (Policy, Nachrichten, Medien, Impulse, Mikrofon im Browser)</li>
+        <li><strong>Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f</strong> — berechtigtes Interesse am sicheren Betrieb (Sessions, Security-Header, Orphan-Cleanup)</li>
+        <li><strong>Art.&nbsp;8 DSGVO</strong> — Nutzung ab 16 Jahren</li>
       </ul>
 
       <h2>5. Speicherdauer (Überblick)</h2>
       <ul>
         <li>Konto: bis zur Löschung</li>
         <li>Nachrichten: gemäß Aufbewahrungsfrist bzw. manueller/Kontolöschung</li>
-        <li>Status: 24 Stunden</li>
-        <li>Sessions: bis Logout/Kontolöschung</li>
-        <li>Einwilligungsnachweise: nach Kontolöschung anonymisiert</li>
+        <li>Impulse: 24 Stunden</li>
+        <li>Sessions: max. 30 Tage bzw. bis Logout</li>
+        <li>Einwilligungsnachweise: nach Kontolöschung anonymisiert (user_id entfernt)</li>
+        <li>Verwaiste Uploads: periodische Bereinigung</li>
       </ul>
 
       <h2>6. Deine Rechte</h2>
       <ul>
-        <li>Auskunft &amp; Datenportabilität (Export)</li>
-        <li>Berichtigung</li>
-        <li>Löschung einzelner Nachrichten oder des gesamten Kontos</li>
-        <li>Einschränkung / Widerspruch nach Maßgabe der DSGVO</li>
-        <li>Widerruf von Einwilligungen</li>
-        <li>Beschwerde bei einer Datenschutz-Aufsichtsbehörde</li>
+        <li><strong>Art.&nbsp;15</strong> Auskunft &amp; <strong>Art.&nbsp;20</strong> Datenportabilität (Export in der App)</li>
+        <li><strong>Art.&nbsp;16</strong> Berichtigung</li>
+        <li><strong>Art.&nbsp;17</strong> Löschung (Nachrichten / Konto)</li>
+        <li><strong>Art.&nbsp;18</strong> Einschränkung der Verarbeitung (Schalter in Privatsphäre)</li>
+        <li><strong>Art.&nbsp;7 Abs.&nbsp;3</strong> Widerruf von Einwilligungen</li>
+        <li><strong>Art.&nbsp;21</strong> Widerspruch, soweit einschlägig</li>
+        <li>Beschwerde bei einer Datenschutz-Aufsichtsbehörde (z.&nbsp;B. Landesbeauftragte für Datenschutz)</li>
       </ul>
 
-      <h2>7. Minderjährigenschutz</h2>
-      <p>Nutzung ab 16 Jahren (Art. 8 DSGVO).</p>
+      <h2>7. Privacy by Design / by Default</h2>
+      <ul>
+        <li>„Zuletzt online“ standardmäßig aus</li>
+        <li>Granulare Einwilligungen bei Registrierung</li>
+        <li>Wählbare Aufbewahrungsfristen</li>
+        <li>Verschlüsselung personenbezogener Nachrichteninhalte at rest</li>
+        <li>Keine Google-Fonts / externe Tracker</li>
+      </ul>
 
       <h2>8. Sicherheit</h2>
       <p>
-        Passwörter: scrypt-Hash. Sessions: zufällige Tokens. Uploads: Größenlimit.
-        HTTPS wird für den Betrieb empfohlen. <strong>Keine E2E-Verschlüsselung</strong> in dieser Version.
+        Passwörter: scrypt. Sessions: zufällige Tokens mit Ablauf. Uploads: Größenlimit.
+        Security-Header (CSP, X-Frame-Options, Referrer-Policy). HTTPS für Produktivbetrieb empfohlen.
+        Schlüssel: Umgebungsvariable <code>RELAY_ENCRYPTION_KEY</code> setzen.
+        <strong>Keine E2E-Verschlüsselung</strong> in dieser Version.
       </p>
 
       <h2>9. Browser-Speicherung</h2>
       <p>
-        Technisch notwendig: Session-Token in <code>localStorage</code>. Kein Tracking-Cookie.
-        Beim Logout wird das Token entfernt.
+        Technisch notwendig: Session-Token in <code>localStorage</code> (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f bzw. §&nbsp;25 Abs.&nbsp;2 TDDDG).
+        Kein Tracking-Cookie. Beim Logout wird das Token entfernt.
       </p>
 
       <div class="note">
-        Für einen öffentlichen Produktivbetrieb müssen Verantwortlicher, Impressum, Hosting-Standort (idealerweise EU)
-        und ggf. Auftragsverarbeitungsverträge konkret ergänzt werden.
+        Für öffentlichen Produktivbetrieb: Impressum mit echten Daten, Hosting möglichst in der EU,
+        ggf. Auftragsverarbeitungsvertrag mit dem Hosting-Anbieter und konkrete Kontaktdaten des Verantwortlichen ergänzen.
       </div>
     </main>
   </body>

@@ -5,12 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#152238" />
     <title>Relay</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap"
-      rel="stylesheet"
-    />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -37,9 +31,11 @@
           <label><span>Benutzername</span><input name="username" required minlength="3" maxlength="24" placeholder="marie" /></label>
           <label><span>Anzeigename</span><input name="display_name" required minlength="2" maxlength="40" placeholder="Marie Schmidt" /></label>
           <label><span>Passwort</span><input name="password" type="password" required minlength="8" placeholder="mindestens 8 Zeichen" /></label>
-          <label class="check-row"><input name="age_confirmed" type="checkbox" required /><span>Ich bin mindestens 16 Jahre alt.</span></label>
+          <label class="check-row"><input name="age_confirmed" type="checkbox" required /><span>Ich bin mindestens 16 Jahre alt (Art.&nbsp;8 DSGVO).</span></label>
           <label class="check-row"><input name="privacy_consent" type="checkbox" required /><span>Ich stimme der <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerklärung</a> zu (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a DSGVO).</span></label>
-          <label class="check-row"><input name="message_consent" type="checkbox" required /><span>Ich willige in die Verarbeitung meiner <strong>Chat-Nachrichten</strong> ein (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO). Keine E2E-Verschlüsselung.</span></label>
+          <label class="check-row"><input name="message_consent" type="checkbox" required /><span>Einwilligung <strong>Chat-Nachrichten</strong> (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b). Speicherung serverseitig verschlüsselt, <strong>keine E2E</strong>.</span></label>
+          <label class="check-row"><input name="media_consent" type="checkbox" required /><span>Einwilligung <strong>Medien</strong> (Bilder/Sprachnotizen) (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a).</span></label>
+          <label class="check-row"><input name="impulse_consent" type="checkbox" required /><span>Einwilligung <strong>Impulse</strong> (24h-Status) (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a).</span></label>
           <button type="submit" class="btn btn-primary">Konto erstellen</button>
         </form>
 
@@ -48,6 +44,7 @@
           <strong>Demo</strong>
           <span>anna / ben / clara / david — Passwort <code>demo</code></span>
           <a href="/datenschutz.html">Datenschutz</a>
+          <a href="/impressum.html">Impressum</a>
         </aside>
       </div>
     </section>
@@ -117,7 +114,7 @@
             </div>
 
             <div id="message-legal-note" class="message-legal-note">
-              Nachrichten: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO · serverseitig · Frist unter Privatsphäre
+              Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO · at-rest verschlüsselt · keine E2E · Frist unter Privatsphäre
             </div>
 
             <form id="composer" class="composer">
@@ -199,9 +196,9 @@
       <form method="dialog" class="sheet-inner">
         <header class="sheet-header"><h2>Privatsphäre</h2><button type="submit" value="cancel" class="icon-btn">×</button></header>
         <div class="group-form-fields privacy-fields">
-          <label class="check-row"><input id="privacy-last-seen" type="checkbox" /><span>„Zuletzt online“ anzeigen</span></label>
+          <label class="check-row"><input id="privacy-last-seen" type="checkbox" /><span>„Zuletzt online“ anzeigen (Privacy by Default: aus)</span></label>
           <label>
-            <span>Nachrichten-Aufbewahrung</span>
+            <span>Nachrichten-Aufbewahrung (Art.&nbsp;5 Abs.&nbsp;1 lit.&nbsp;e)</span>
             <select id="privacy-retention">
               <option value="30">30 Tage</option>
               <option value="90">90 Tage</option>
@@ -209,9 +206,28 @@
               <option value="365">365 Tage</option>
             </select>
           </label>
-          <p class="privacy-help">Rechtsgrundlage Nachrichten: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO. <a href="/datenschutz.html" target="_blank" rel="noopener">Mehr</a></p>
-          <button type="button" id="btn-export-data" class="btn btn-secondary">Daten exportieren</button>
-          <button type="button" id="btn-delete-account" class="btn btn-danger">Konto löschen</button>
+          <label class="check-row"><input id="privacy-restrict" type="checkbox" /><span>Verarbeitung einschränken (Art.&nbsp;18 DSGVO) — pausiert neue Nachrichten/Impulse</span></label>
+
+          <p class="privacy-section-title">Einwilligungen</p>
+          <div id="consent-status" class="consent-status"></div>
+          <div class="privacy-actions-row">
+            <button type="button" id="btn-revoke-messages" class="btn btn-secondary btn-small">Nachrichten widerrufen</button>
+            <button type="button" id="btn-revoke-media" class="btn btn-secondary btn-small">Medien widerrufen</button>
+            <button type="button" id="btn-revoke-impulses" class="btn btn-secondary btn-small">Impulse widerrufen</button>
+          </div>
+          <div class="privacy-actions-row">
+            <button type="button" id="btn-grant-messages" class="btn btn-secondary btn-small">Nachrichten erteilen</button>
+            <button type="button" id="btn-grant-media" class="btn btn-secondary btn-small">Medien erteilen</button>
+            <button type="button" id="btn-grant-impulses" class="btn btn-secondary btn-small">Impulse erteilen</button>
+          </div>
+
+          <p class="privacy-help">
+            Rechtsgrundlagen: Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a/b DSGVO. Session: 30 Tage.
+            <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> ·
+            <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>
+          </p>
+          <button type="button" id="btn-export-data" class="btn btn-secondary">Daten exportieren (Art.&nbsp;15/20)</button>
+          <button type="button" id="btn-delete-account" class="btn btn-danger">Konto löschen (Art.&nbsp;17)</button>
         </div>
       </form>
     </dialog>
@@ -220,7 +236,7 @@
       <form id="message-consent-form" class="sheet-inner">
         <header class="sheet-header"><h2>Einwilligung Nachrichten</h2></header>
         <div class="group-form-fields">
-          <p class="privacy-help">Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO. Keine E2E-Verschlüsselung. <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a></p>
+          <p class="privacy-help">Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;a und lit.&nbsp;b DSGVO. Speicherung at-rest verschlüsselt, keine E2E. <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutz</a></p>
           <label class="check-row"><input id="message-consent-check" type="checkbox" required /><span>Ich willige in die Verarbeitung meiner Chat-Nachrichten ein.</span></label>
           <button type="submit" class="btn btn-primary">Einwilligen</button>
         </div>
@@ -228,7 +244,7 @@
     </dialog>
 
     <div id="storage-banner" class="storage-banner is-hidden">
-      <p>Nur technisch nötiges Session-Token im Browser. <a href="/datenschutz.html">Datenschutz</a></p>
+      <p>Nur technisch nötiges Session-Token (30 Tage). <a href="/datenschutz.html">Datenschutz</a> · <a href="/impressum.html">Impressum</a></p>
       <button type="button" id="btn-accept-storage" class="btn btn-primary btn-small">Verstanden</button>
     </div>
     <div id="toast" class="toast is-hidden" role="status"></div>

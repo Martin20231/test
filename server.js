@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import multer from 'multer';
 import { createHash, randomBytes } from 'crypto';
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, unlinkSync, readdirSync } from 'fs';
 import { join, dirname, extname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -40,9 +40,14 @@ import {
   deleteUserAccount,
   recordPrivacyConsent,
   recordMessageConsent,
+  recordMediaConsent,
+  recordImpulseConsent,
+  revokeConsent,
   getPrivacyPolicyVersion,
   getMessagePrivacyInfo,
   purgeExpiredMessagesByRetention,
+  cleanupExpiredSessions,
+  listReferencedUploadUrls,
 } from './db/database.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -128,7 +133,7 @@ app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self' ws: wss:;"
+    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; connect-src 'self' ws: wss:;"
   );
 
   const origin = req.headers.origin;
@@ -183,6 +188,20 @@ app.get('/api/privacy/policy-version', (_req, res) => {
   });
 });
 
+app.get('/api/legal/impressum', (_req, res) => {
+  res.json({
+    name: process.env.IMPRESSUM_NAME || '[Name / Firma eintragen]',
+    address: process.env.IMPRESSUM_ADDRESS || '[Anschrift eintragen]',
+    email: process.env.IMPRESSUM_EMAIL || '[E-Mail eintragen]',
+    phone: process.env.IMPRESSUM_PHONE || null,
+    vat_id: process.env.IMPRESSUM_VAT_ID || null,
+    responsible: process.env.IMPRESSUM_RESPONSIBLE || null,
+    note:
+      'Angaben gemäß § 5 DDG. Platzhalter bitte vor produktivem Betrieb durch echte Betreiberdaten ersetzen.',
+    url: '/impressum.html',
+  });
+});
+
 app.post('/api/auth/register', (req, res) => {
   try {
     const user = createUser({
@@ -191,6 +210,8 @@ app.post('/api/auth/register', (req, res) => {
       password: req.body.password,
       privacyConsent: Boolean(req.body.privacy_consent),
       messageConsent: Boolean(req.body.message_consent),
+      mediaConsent: Boolean(req.body.media_consent),
+      impulseConsent: Boolean(req.body.impulse_consent),
       ageConfirmed: Boolean(req.body.age_confirmed),
       requestMeta: requestMeta(req),
     });
@@ -241,6 +262,10 @@ app.patch('/api/me/privacy', authMiddleware, (req, res) => {
     const user = updatePrivacySettings(req.user.id, {
       showLastSeen: req.body.show_last_seen,
       messageRetentionDays: req.body.message_retention_days,
+      processingRestricted:
+        typeof req.body.processing_restricted === 'boolean'
+          ? req.body.processing_restricted
+          : undefined,
     });
     io.emit('presence:privacy', {
       user_id: user.id,
@@ -274,6 +299,43 @@ app.post('/api/me/message-consent', authMiddleware, (req, res) => {
       user,
       version: getPrivacyPolicyVersion(),
       message_privacy: getMessagePrivacyInfo(),
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/me/media-consent', authMiddleware, (req, res) => {
+  try {
+    if (!req.body.media_consent) {
+      return res.status(400).json({ error: 'Medien-Einwilligung fehlt.' });
+    }
+    const user = recordMediaConsent(req.user.id, requestMeta(req));
+    res.json({ user, version: getPrivacyPolicyVersion() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/me/impulse-consent', authMiddleware, (req, res) => {
+  try {
+    if (!req.body.impulse_consent) {
+      return res.status(400).json({ error: 'Impuls-Einwilligung fehlt.' });
+    }
+    const user = recordImpulseConsent(req.user.id, requestMeta(req));
+    res.json({ user, version: getPrivacyPolicyVersion() });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/me/consent/revoke', authMiddleware, (req, res) => {
+  try {
+    const user = revokeConsent(req.user.id, req.body.scope, requestMeta(req));
+    res.json({
+      user,
+      version: getPrivacyPolicyVersion(),
+      note: 'Widerruf gilt für die Zukunft (Art. 7 Abs. 3 DSGVO).',
     });
   } catch (error) {
     sendError(res, error);
@@ -655,8 +717,41 @@ function runRetentionCleanup() {
   }
 }
 
+function runSessionCleanup() {
+  try {
+    const removed = cleanupExpiredSessions();
+    if (removed > 0) console.log(`Session-Cleanup: ${removed} abgelaufene Sessions entfernt`);
+  } catch (error) {
+    console.error('Session-Cleanup fehlgeschlagen', error);
+  }
+}
+
+function runOrphanUploadCleanup() {
+  try {
+    const referenced = listReferencedUploadUrls();
+    const files = readdirSync(UPLOAD_DIR);
+    let removed = 0;
+    for (const file of files) {
+      const url = `/uploads/${file}`;
+      if (!referenced.has(url)) {
+        unlinkUpload(url);
+        removed += 1;
+      }
+    }
+    if (removed > 0) console.log(`Upload-Cleanup: ${removed} verwaiste Dateien entfernt`);
+  } catch (error) {
+    console.error('Upload-Cleanup fehlgeschlagen', error);
+  }
+}
+
+function runPrivacyMaintenance() {
+  runRetentionCleanup();
+  runSessionCleanup();
+  runOrphanUploadCleanup();
+}
+
 httpServer.listen(PORT, () => {
   console.log(`Relay Messenger läuft auf http://localhost:${PORT}`);
-  runRetentionCleanup();
-  setInterval(runRetentionCleanup, 60 * 60 * 1000);
+  runPrivacyMaintenance();
+  setInterval(runPrivacyMaintenance, 60 * 60 * 1000);
 });
