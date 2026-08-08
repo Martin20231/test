@@ -1,14 +1,52 @@
 import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { getDb, initDatabase } from './db/database.js';
-import { lookupPrices } from './services/priceLookup.js';
+import {
+  initDatabase,
+  createUser,
+  authenticateUser,
+  createSession,
+  getUserByToken,
+  deleteSession,
+  listUsers,
+  updateStatus,
+  findOrCreateDirectConversation,
+  listConversations,
+  getConversationForUser,
+  listMessages,
+  createMessage,
+  markMessagesDelivered,
+  markMessagesRead,
+  getConversationMemberIds,
+} from './db/database.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT ?? 3000;
 
 initDatabase();
+
+const onlineUsers = new Map(); // userId -> Set of socket ids
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        origin.includes('github.io') ||
+        origin.startsWith('http://localhost') ||
+        origin.startsWith('http://127.0.0.1')
+      ) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
+  },
+});
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -19,303 +57,229 @@ app.use((req, res, next) => {
       origin.startsWith('http://127.0.0.1'))
   ) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '32kb' }));
 app.use(express.static(join(__dirname, 'public')));
 
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const user = getUserByToken(token);
+  if (!user) {
+    return res.status(401).json({ error: 'Nicht angemeldet.' });
+  }
+  req.user = user;
+  req.token = token;
+  next();
+}
+
+function sendError(res, error) {
+  const status = error.status || 500;
+  res.status(status).json({ error: error.message || 'Interner Fehler.' });
+}
+
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', service: 'relay' });
 });
 
-app.get('/api/stores', (_req, res, next) => {
+app.post('/api/auth/register', (req, res) => {
   try {
-    const stores = getDb().prepare('SELECT id, name FROM stores ORDER BY name').all();
-    res.json({ stores });
+    const user = createUser({
+      username: req.body.username,
+      displayName: req.body.display_name || req.body.displayName,
+      password: req.body.password,
+    });
+    const token = createSession(user.id);
+    res.status(201).json({ token, user });
   } catch (error) {
-    next(error);
+    sendError(res, error);
   }
 });
 
-app.get('/api/products', (_req, res, next) => {
+app.post('/api/auth/login', (req, res) => {
   try {
-    const products = getDb()
-      .prepare(`
-        SELECT p.id, p.name, p.category, p.image_url, p.rewe_id, p.rewe_price, p.grammage, p.brand
-        FROM products p
-        ORDER BY p.category, p.name
-      `)
-      .all();
-    res.json({ products });
+    const user = authenticateUser(req.body.username, req.body.password);
+    const token = createSession(user.id);
+    res.json({ token, user });
   } catch (error) {
-    next(error);
+    sendError(res, error);
   }
 });
 
-app.post('/api/receipts', (req, res, next) => {
-  try {
-    const { store_id, date, total_price, items } = req.body;
+app.post('/api/auth/logout', authMiddleware, (req, res) => {
+  deleteSession(req.token);
+  res.json({ ok: true });
+});
 
-    if (store_id == null || !date || total_price == null) {
-      return res.status(400).json({
-        error: 'store_id, date und total_price sind Pflichtfelder.',
+app.get('/api/me', authMiddleware, (req, res) => {
+  res.json({
+    user: req.user,
+    online_user_ids: [...onlineUsers.keys()],
+  });
+});
+
+app.patch('/api/me/status', authMiddleware, (req, res) => {
+  try {
+    const user = updateStatus(req.user.id, req.body.status);
+    io.emit('presence:status', { user_id: user.id, status: user.status });
+    res.json({ user });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/users', authMiddleware, (req, res) => {
+  res.json({
+    users: listUsers(req.user.id),
+    online_user_ids: [...onlineUsers.keys()],
+  });
+});
+
+app.get('/api/conversations', authMiddleware, (req, res) => {
+  res.json({ conversations: listConversations(req.user.id) });
+});
+
+app.post('/api/conversations', authMiddleware, (req, res) => {
+  try {
+    const peerId = req.body.user_id || req.body.peer_id;
+    if (!peerId) {
+      return res.status(400).json({ error: 'user_id fehlt.' });
+    }
+    const conversation = findOrCreateDirectConversation(req.user.id, peerId);
+    res.status(201).json({ conversation });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/conversations/:id/messages', authMiddleware, (req, res) => {
+  try {
+    const conversation = getConversationForUser(req.params.id, req.user.id);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Chat nicht gefunden.' });
+    }
+    markMessagesDelivered(req.params.id, req.user.id);
+    const messages = listMessages(req.params.id, req.user.id);
+    res.json({ conversation, messages });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/conversations/:id/messages', authMiddleware, (req, res) => {
+  try {
+    const message = createMessage(req.params.id, req.user.id, req.body.body);
+    const memberIds = getConversationMemberIds(req.params.id);
+
+    for (const memberId of memberIds) {
+      io.to(`user:${memberId}`).emit('message:new', {
+        message,
+        conversation_id: req.params.id,
       });
     }
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({
-        error: 'items muss ein nicht-leeres Array sein.',
+    const peerOnline = memberIds.some(
+      (id) => id !== req.user.id && onlineUsers.has(id)
+    );
+    if (peerOnline) {
+      message.delivered_at = message.delivered_at || new Date().toISOString();
+    }
+
+    res.status(201).json({ message });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/conversations/:id/read', authMiddleware, (req, res) => {
+  try {
+    const updated = markMessagesRead(req.params.id, req.user.id);
+    const memberIds = getConversationMemberIds(req.params.id);
+    for (const memberId of memberIds) {
+      if (memberId === req.user.id) continue;
+      io.to(`user:${memberId}`).emit('message:read', {
+        conversation_id: req.params.id,
+        message_ids: updated.map((m) => m.id),
+        reader_id: req.user.id,
+        read_at: updated[0]?.read_at || null,
       });
     }
+    res.json({ updated: updated.length });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
 
-    for (const item of items) {
-      if (item.price == null) {
-        return res.status(400).json({
-          error: 'Jedes Item benötigt price.',
-        });
-      }
-      if (!item.product_id && !item.product_name) {
-        return res.status(400).json({
-          error: 'Jedes Item benötigt product_id oder product_name.',
-        });
-      }
-      if (typeof item.price !== 'number' || item.price <= 0) {
-        return res.status(400).json({
-          error: 'Der Preis muss eine Zahl größer als 0 sein.',
-        });
-      }
-    }
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  const user = getUserByToken(token);
+  if (!user) {
+    return next(new Error('Unauthorized'));
+  }
+  socket.user = user;
+  next();
+});
 
-    const db = getDb();
-    const findProduct = db.prepare('SELECT id FROM products WHERE id = ?');
-    const findByName = db.prepare('SELECT id FROM products WHERE name = ? COLLATE NOCASE');
-    const insertProduct = db.prepare(`
-      INSERT INTO products (name, category, image_url) VALUES (?, 'Bon-Scan', NULL)
-    `);
+io.on('connection', (socket) => {
+  const userId = socket.user.id;
+  socket.join(`user:${userId}`);
 
-    function resolveProductId(item) {
-      if (item.product_id != null) {
-        const product = findProduct.get(item.product_id);
-        if (!product) {
-          throw Object.assign(new Error(`Produkt mit ID ${item.product_id} existiert nicht.`), {
-            status: 400,
-          });
-        }
-        return item.product_id;
-      }
-      const existing = findByName.get(item.product_name);
-      if (existing) return existing.id;
-      const result = insertProduct.run(item.product_name);
-      return result.lastInsertRowid;
-    }
+  if (!onlineUsers.has(userId)) {
+    onlineUsers.set(userId, new Set());
+    socket.broadcast.emit('presence:online', { user_id: userId });
+  }
+  onlineUsers.get(userId).add(socket.id);
 
-    const store = db.prepare('SELECT id FROM stores WHERE id = ?').get(store_id);
-    if (!store) {
-      return res.status(400).json({ error: `Store mit ID ${store_id} existiert nicht.` });
-    }
+  socket.emit('presence:snapshot', { online_user_ids: [...onlineUsers.keys()] });
 
-    const resolvedItems = items.map((item) => ({
-      product_id: resolveProductId(item),
-      price: item.price,
-    }));
-
-    const insertReceipt = db.prepare(`
-      INSERT INTO receipts (store_id, date, total_price)
-      VALUES (?, ?, ?)
-    `);
-
-    const insertItem = db.prepare(`
-      INSERT INTO receipt_items (receipt_id, product_id, price)
-      VALUES (?, ?, ?)
-    `);
-
-    const createReceipt = db.transaction(() => {
-      const result = insertReceipt.run(store_id, date, total_price);
-      const receiptId = result.lastInsertRowid;
-
-      const savedItems = resolvedItems.map((item) => {
-        const itemResult = insertItem.run(receiptId, item.product_id, item.price);
-        return {
-          id: itemResult.lastInsertRowid,
-          product_id: item.product_id,
-          price: item.price,
-        };
+  socket.on('typing:start', ({ conversation_id }) => {
+    if (!conversation_id) return;
+    const members = getConversationMemberIds(conversation_id);
+    if (!members.includes(userId)) return;
+    for (const memberId of members) {
+      if (memberId === userId) continue;
+      io.to(`user:${memberId}`).emit('typing:start', {
+        conversation_id,
+        user_id: userId,
       });
+    }
+  });
 
-      return {
-        id: receiptId,
-        store_id,
-        date,
-        total_price,
-        items: savedItems,
-      };
-    });
+  socket.on('typing:stop', ({ conversation_id }) => {
+    if (!conversation_id) return;
+    const members = getConversationMemberIds(conversation_id);
+    if (!members.includes(userId)) return;
+    for (const memberId of members) {
+      if (memberId === userId) continue;
+      io.to(`user:${memberId}`).emit('typing:stop', {
+        conversation_id,
+        user_id: userId,
+      });
+    }
+  });
 
-    const receipt = createReceipt();
-    res.status(201).json(receipt);
-  } catch (error) {
-    next(error);
-  }
+  socket.on('disconnect', () => {
+    const sockets = onlineUsers.get(userId);
+    if (!sockets) return;
+    sockets.delete(socket.id);
+    if (sockets.size === 0) {
+      onlineUsers.delete(userId);
+      socket.broadcast.emit('presence:offline', { user_id: userId });
+    }
+  });
 });
 
-app.get('/api/products/history/:id', (req, res, next) => {
-  try {
-    const productId = Number(req.params.id);
-    if (Number.isNaN(productId)) {
-      return res.status(400).json({ error: 'Ungültige Produkt-ID.' });
-    }
-
-    const db = getDb();
-
-    const product = db
-      .prepare('SELECT id, name, image_url, category FROM products WHERE id = ?')
-      .get(productId);
-
-    if (!product) {
-      return res.status(404).json({ error: `Produkt mit ID ${productId} nicht gefunden.` });
-    }
-
-    const history = db
-      .prepare(`
-        SELECT
-          r.date,
-          ri.price,
-          r.store_id,
-          s.name AS store_name,
-          r.id AS receipt_id
-        FROM receipt_items ri
-        JOIN receipts r ON r.id = ri.receipt_id
-        JOIN stores s ON s.id = r.store_id
-        WHERE ri.product_id = ?
-        ORDER BY r.date ASC, r.id ASC
-      `)
-      .all(productId);
-
-    res.json({
-      product_id: product.id,
-      product_name: product.name,
-      image_url: product.image_url,
-      category: product.category,
-      history,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get('/api/prices/lookup', async (req, res, next) => {
-  try {
-    const query = req.query.q;
-    if (!query || !String(query).trim()) {
-      return res.status(400).json({ error: 'Query-Parameter q ist erforderlich.' });
-    }
-
-    const limit = Math.min(Number(req.query.limit) || 8, 20);
-    const result = await lookupPrices(getDb(), String(query), { limit });
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get('/api/compare', (_req, res, next) => {
-  try {
-    const db = getDb();
-
-    const latestPrices = db
-      .prepare(`
-        SELECT
-          p.id AS product_id,
-          p.name AS product_name,
-          p.category,
-          p.image_url,
-          s.id AS store_id,
-          s.name AS store_name,
-          (
-            SELECT ri.price
-            FROM receipt_items ri
-            JOIN receipts r ON r.id = ri.receipt_id
-            WHERE ri.product_id = p.id AND r.store_id = s.id
-            ORDER BY r.date DESC, r.id DESC
-            LIMIT 1
-          ) AS latest_price,
-          (
-            SELECT r.date
-            FROM receipt_items ri
-            JOIN receipts r ON r.id = ri.receipt_id
-            WHERE ri.product_id = p.id AND r.store_id = s.id
-            ORDER BY r.date DESC, r.id DESC
-            LIMIT 1
-          ) AS latest_date
-        FROM products p
-        CROSS JOIN stores s
-        ORDER BY p.id, s.id
-      `)
-      .all();
-
-    const productsMap = new Map();
-
-    for (const row of latestPrices) {
-      if (!productsMap.has(row.product_id)) {
-        productsMap.set(row.product_id, {
-          product_id: row.product_id,
-          product_name: row.product_name,
-          category: row.category,
-          image_url: row.image_url,
-          stores: [],
-        });
-      }
-
-      if (row.latest_price != null) {
-        productsMap.get(row.product_id).stores.push({
-          store_id: row.store_id,
-          store_name: row.store_name,
-          latest_price: row.latest_price,
-          latest_date: row.latest_date,
-        });
-      }
-    }
-
-    const comparisons = Array.from(productsMap.values()).map((product) => {
-      if (product.stores.length === 0) {
-        return {
-          ...product,
-          cheapest_store: null,
-          cheapest_price: null,
-        };
-      }
-
-      const cheapest = product.stores.reduce((min, store) =>
-        store.latest_price < min.latest_price ? store : min
-      );
-
-      return {
-        product_id: product.product_id,
-        product_name: product.product_name,
-        category: product.category,
-        image_url: product.image_url,
-        cheapest_store: cheapest.store_name,
-        cheapest_price: cheapest.latest_price,
-        stores: product.stores,
-      };
-    });
-
-    res.json({ comparisons });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.use((error, _req, res, _next) => {
-  console.error(error);
+app.use((err, _req, res, _next) => {
+  console.error(err);
   res.status(500).json({ error: 'Interner Serverfehler.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Einkaufs-Tracker Backend läuft auf http://localhost:${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`Relay Messenger läuft auf http://localhost:${PORT}`);
 });

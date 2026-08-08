@@ -1,10 +1,16 @@
-# Einkaufs-Tracker
+# Relay — Messenger
 
-> **Web-App:** https://martin20231.github.io/test/
+Echtzeit-Messenger (WhatsApp-ähnlich) mit Node.js, Express, Socket.io und SQLite.
 
-Fullstack Einkaufs-Tracker mit Node.js, Express, SQLite und modernem Frontend.
+## Features
 
-## Schnellstart (lokal)
+- Registrieren / Anmelden
+- 1:1-Chats in Echtzeit
+- Online-Status & Tippanzeige
+- Lesebestätigungen
+- Responsive Layout (Desktop + Handy)
+
+## Schnellstart
 
 ```bash
 npm install
@@ -13,7 +19,18 @@ npm start
 
 Öffne http://localhost:3000
 
-## GitHub Pages
+### Demo-Accounts
 
-Die App wird auf den `gh-pages`-Branch deployed.  
-Falls die README statt der App erscheint → siehe [SETUP.md](SETUP.md)
+| Benutzer | Passwort |
+|----------|----------|
+| anna     | demo     |
+| ben      | demo     |
+| clara    | demo     |
+| david    | demo     |
+
+Tipp: Zwei Browserfenster (oder ein normales + ein Inkognito-Fenster) öffnen und live schreiben.
+
+## Deploy (z. B. Render)
+
+Die App braucht einen laufenden Node-Server (WebSockets).  
+`render.yaml` ist vorbereitet — Free-Plan reicht für den Test.
